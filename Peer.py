@@ -9,8 +9,26 @@ import ssl
 
 # Dict holding the information about the other peers in the swarm
 swarm = {}
+
+# Id of this peer in the swarm
 local_id = 0
-downloadFinished = False
+
+# Flag indicating if the user has downloaded their target file yet
+download_finished = False
+
+# Flag indicating if we should exit subthreads and close the peer
+exit_peer = False
+
+# List of current peer connections (or dict not sure yet)
+current_peers = {}
+
+# List of download pieces remaining (again also maybe a dict)
+pieces_remaining = {}
+
+# List of downloaded pieces (file, index, string)
+pieces = {}
+
+# TODO depending on how we discover other peers and their pieces, we may want to store a dict showing what users have what pieces
 
 # Lock for managing local swarm list and file info
 lock = threading.Lock()
@@ -19,8 +37,8 @@ lock = threading.Lock()
 def update_swarm(ip, port):
     global swarm
     global lock
-    global downloadFinished
-    while not downloadFinished:
+    global download_finished
+    while not download_finished:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect((ip, port))
@@ -66,11 +84,60 @@ def update_swarm(ip, port):
             print("Server unavailable for connection")
 
 
-# Just drafting out some protocol ideas
-def sharing():
-    # TODO as you saw in the tracker file, confirming message length using a hash is kind of ugly, for here, thinking we send a fixed length message and just pad with 0s to avoid
-    # having any issues
+def handle_responses():
     print("stuff")
+    # This function should handle a response and return information about it
+    # ie if it is a have, dont need to resend a piece (and also return to the
+    # calling function so we can send the next piece) or if it is a request,
+    # send a piece in response
+
+
+# Just drafting out some protocol ideas
+
+# Thoughts for this function, if we are currently looking for a file, we will
+# have our 4 main connectors querying peers in random order to get files, with
+# it still up for decision how we prioritize chunks
+# This will require 2 global lists - one for the current communication links
+# (so other connectors dont try to connect to the same peer) and the chunks left
+# to be queried. When a connector finds someone with chunks we need, they will
+# figure out which ports are open, connect to that port, then record the port
+# they connected to and remove the chunks to be searched from the list.
+# If the chunks are all received and verified correctly, then they will remain off
+# however, if something happens, then the chunks will be re-added to the list.
+# Once the size of the list hits 0, connectors will go into waiting mode.
+# A seeder will always be in waiting mode (though whether we have designated seeders
+# and loaders is up for debate)
+
+# the thread for choking and unchoking will not be designated, most likely it will
+# simply check the list of communicators, and if there are 4 it will say I am the
+# thread for unchoking - the same thing occurs when something gets kicked off
+# it will now see there are 4 items, and it will start the unchoking protocol
+
+# currently, I imagine each connector having 2 threads, one for each direction,
+# though it is also true that in addition to transferring information, we will
+# also need to handle acks and the like, so we may want 1 thread instead.
+def sharing():
+    global download_finished
+    global lock
+    global swarm
+    global current_peers
+    global pieces_remaining
+    global exit_peer
+
+    while not download_finished:
+        if len(current_peers) < 4:
+            # Even if we are not using all 4 connections, we cannot download
+            # anything if there is nothing left to get
+            if len(pieces_remaining) < 1:
+                print("waiting to see if a peer wants to download")
+                time.sleep(.5)
+            else: # This where the real work happens, communicate with peer
+                # TODO figure out how we will figure out which peer to comm with and which index to request
+                print("Sending data")
+        else:
+            # TODO optimistic unchoking procedure
+            print("waiting to unchoke a peer")
+
     # Flag messages are just payload and hash
     # We can change the numbers, just using 0-3 here
     # Choke
@@ -101,11 +168,16 @@ def sharing():
     send_hash = hashlib.sha256(send_packet)
     # TODO skipped the bitfield one since I am not sure how we are handling that
 
+    while not exit_peer:
+        print("waiting to see if a peer wants to download")
+        time.sleep(.5)
+
 
 def main():
     global swarm
     global local_id
-    global downloadFinished
+    global download_finished
+    global exit_peer
 
     parser = argparse.ArgumentParser(
         prog="Peer",
@@ -173,7 +245,8 @@ def main():
     update_thread.start()
 
     time.sleep(10)
-    downloadFinished = True
+    download_finished = True
+    exit_peer = True
 
     # TODO figure out how we are checking which users have what chunks
 
@@ -190,10 +263,6 @@ def main():
         #with context.wrap_socket(sock, server_hostname=swarm[1][1]) as ssock:
             #print(ssock.version())
 
-
-
-    # All stuff below the to do will be moved into a function once we get
-    # one peer to one peer working
 
     # At the end of downloading (or whenever we decided to stop)
     try:
