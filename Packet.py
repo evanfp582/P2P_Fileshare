@@ -1,21 +1,28 @@
 import hashlib
 import struct
-
+from enum import Enum
 import Utility
 
+class PacketType(Enum):
+  CHOKE = 0
+  UNCHOKE = 1
+  INTERESTED = 2
+  NOT_INTERESTED = 3
+  HAVE = 4
+  BITFIELD = 5
+  REQUEST = 6
 
 def create_packet(packet_type, *args):
   """Creates packets depending on what type you submit
-
   Args:
-      packet_type (int): Integer 0 - 6 to indicate type of packet  
-        0 Choke Message - No extra arguments  
-        1 Unchoke Message - No extra arguments  
-        2 Interested Message - No extra arguments  
-        3 Not Interested Message - No extra arguments  
-        4 Have Message - Piece index requested   
-        5 Bitfield Message - bitfield bytes (see Utility.create_bitfield)  
-        6 Request Message - Packet index, file id  
+    packet_type (int): Integer 0 - 6 to indicate type of packet  
+      0 Choke Message - No extra arguments  
+      1 Unchoke Message - No extra arguments  
+      2 Interested Message - No extra arguments  
+      3 Not Interested Message - No extra arguments  
+      4 Have Message - Piece index requested   
+      5 Bitfield Message - bitfield bytes (see Utility.create_bitfield)  
+      6 Request Message - Packet index, file id  
   Raises:
       ValueError: In the event wrong length or invalid argument  
   Returns:
@@ -42,17 +49,58 @@ def create_packet(packet_type, *args):
   else:
     raise ValueError("Not valid packet type")
   
-  packet_hash = hashlib.sha256(packet[1:]).digest()
-  
+  packet_hash = hashlib.sha256(packet[4:]).digest()
   return packet + packet_hash
 
+def parse_packet(packet):
+  """Function to return a parsed packet
+  Args:
+      packet (byte string): a byte string representation of the packet
+  Raises:
+      ValueError: If invalid length or packet_type code
+  Returns:
+      Packet object: {"type": packet_type, "payload": None or data, "valid_hash": boolean}
+  """ 
+  length, = struct.unpack(">I", packet[:4])
+  if len(packet) < length + 32:
+    raise ValueError("Packet length mismatch")
+  
+  packet_type, = struct.unpack(">B", packet[4:5])
+  
+  payload = None
+  if packet_type in [0, 1, 2, 3]:  # Choke, Unchoke, Interested, Not Interested have no payload
+    payload = None
+  elif packet_type == 4:  # Have Message
+    payload = struct.unpack(">I", packet[5:9])[0]
+  elif packet_type == 5:  # Bitfield Message
+    bit_string = Utility.bytes_to_binary(packet[5:length+4])
+    payload = bit_string
+  elif packet_type == 6:  # Request Message
+    packet_index, file_id = struct.unpack(">II", packet[5:13])
+    payload = {"packet_index": packet_index, "file_id": file_id}
+  else:
+    raise ValueError("Invalid packet type")
+  
+  received_hash = packet[4 + length:4 + length + 32]  # Last 32 bytes
+  computed_hash = hashlib.sha256(packet[4:4 + length]).digest()    
+  return {
+      "type": PacketType(packet_type).name,
+      "payload": payload,
+      "valid_hash": computed_hash == received_hash
+  }
 
 if __name__ == "__main__":
+  index = 100
+  example_packet = create_packet(4, index)  # Create a have packet
+  parsed_data = parse_packet(example_packet)
+  print(parsed_data)
   
-  #Example of creating a bitfield packet
   bitfield_bytes = Utility.create_bitfield({5: "test", 1: "test2", 4:"test3"}, 10)
-  print(create_packet(5 ,bitfield_bytes))
+  example_packet = create_packet(5, bitfield_bytes)  # Create a bitfield packet
+  parsed_data = parse_packet(example_packet)
+  print(parsed_data)
   
-  packet_index = 12 #Example of creating a packet for request
-  file_id = 1 
-  print(create_packet(6, packet_index, file_id))
+  packet_index, file_id = 10, 15
+  example_packet = create_packet(6, packet_index, file_id)  # Create a request packet
+  parsed_data = parse_packet(example_packet)
+  print(parsed_data)

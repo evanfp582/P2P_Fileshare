@@ -1,6 +1,5 @@
 import os
 
-
 def split_file(folder, filename, packet_size):
   """Splits a file into chunks of a given size.
   Args:
@@ -46,10 +45,20 @@ def create_bitfield(pieces, file_length):
     
   bitfield_bytes = bytearray()
   for i in range(0, len(bitfield), 8):
-      byte = bitfield[i:i+8]
-      bitfield_bytes.append(int(byte, 2))
+    byte = bitfield[i:i+8]
+    bitfield_bytes.append(int(byte, 2))
   
   return bytes(bitfield_bytes)
+
+def bytes_to_binary(byte_data):
+  """Converts byte into bit string. Used for bitfield
+  Args:
+      byte_data (byte): bytes
+
+  Returns:
+      string: string of bits from bytes
+  """
+  return ''.join(f'{byte:08b}' for byte in byte_data)
 
 if __name__ == "__main__":
   """Just in here for testing purposes, not the cleanest, but can be deleted before we submit"""
