@@ -26,6 +26,8 @@ current_peers = {}
 pieces_remaining = {}
 
 # List of downloaded pieces (file, index, string)
+#TODO I think this should be a dictionary. It's a little messy, but an embedded dictionary that look like this 
+# pieces = { file_name: {index: string? I am not sure what string is supposed to be, the binary string of data?}}
 pieces = {}
 
 # TODO depending on how we discover other peers and their pieces, we may want to store a dict showing what users have what pieces
