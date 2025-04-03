@@ -1,6 +1,8 @@
 import os
 
-def split_file(folder, filename, packet_size):
+PIECE_BYTE_LENGTH = 128 #TODO we need to decide. Chose 128 because the docs say commonly powers of 2
+
+def split_file(folder, filename):
   """Splits a file into chunks of a given size.
   Args:
     folder (str): Folder with file.
@@ -11,8 +13,8 @@ def split_file(folder, filename, packet_size):
   local_files = os.path.join(folder, filename)
   chunks = []
   with open(local_files, "rb") as file:
-    while chunk := file.read(packet_size):
-      chunks.append((chunk).ljust(packet_size, b'\0')) # If < packet size, fill in with buffer '\0'
+    while chunk := file.read(PIECE_BYTE_LENGTH):
+      chunks.append((chunk).ljust(PIECE_BYTE_LENGTH, b'\0')) # If < packet size, fill in with buffer '\0'
   return chunks
 
 def reassemble_file(pieces, folder, output_filename):
@@ -53,10 +55,9 @@ def create_bitfield(pieces, file_length):
 def bytes_to_binary(byte_data):
   """Converts byte into bit string. Used for bitfield
   Args:
-      byte_data (byte): bytes
-
+    byte_data (byte): bytes
   Returns:
-      string: string of bits from bytes
+    string: string of bits from bytes
   """
   return ''.join(f'{byte:08b}' for byte in byte_data)
 
