@@ -13,6 +13,7 @@ class PacketType(Enum):
     HAVE = 4
     BITFIELD = 5
     REQUEST = 6
+    PIECE = 7
 
 
 def create_packet(packet_type, *args):
@@ -90,7 +91,7 @@ def parse_packet(packet):
         packet_index, file_id = struct.unpack(">II", packet[5:13])
         payload = {"packet_index": packet_index, "file_id": file_id}
     elif packet_type == 7:  # Piece Message
-        payload = packet[5*8 + 1:]
+        payload = packet[9:]        
     else:
         raise ValueError("Invalid packet type")
     return {
@@ -122,7 +123,7 @@ if __name__ == "__main__":
     byte_array = Utility.split_file("Peer0", "tiger.jpg") 
     print("First byte string:", byte_array[1])
     print(f"Length: {len(byte_array[1])}") 
-    example_packet = create_packet(7, 0, byte_array[1]) # TODO Something goes wrong here
+    example_packet = create_packet(7, 0, byte_array[1])
     parsed_data = parse_packet(example_packet)
     print(parsed_data) 
-    print(f"Length: {len(parsed_data["payload"])}") #TODO The data is different
+    print(f"Length: {len(parsed_data["payload"])}")
