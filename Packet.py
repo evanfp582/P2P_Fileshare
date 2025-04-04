@@ -3,7 +3,12 @@ import struct
 from enum import Enum
 import Utility
 
-PIECE_BYTE_LENGTH = 128 #TODO we need to decide. Chose 128 because the docs say commonly powers of 2
+PIECE_BYTE_LENGTH = 128  # TODO we need to decide. Chose 128 because the docs say commonly powers of 2
+
+
+# Honestly, I think 128 is fine, it is big enough to be a reasonable protocol
+# but small enough that we can send a lot of messages using a very basic
+# set of test files.
 
 class PacketType(Enum):
     CHOKE = 0
@@ -55,9 +60,11 @@ def create_packet(packet_type, *args):
         packet = struct.pack(">IBII", 9, packet_type, piece_index, file_id)
     elif packet_type == 7:
         if len(args) != 2:
-          raise ValueError("Request type requires piece index (int), byte string")
+            raise ValueError(
+                "Piece type requires piece index (int), byte string")
         piece_index, byte_string = args
-        packet = struct.pack(">IBI", PIECE_BYTE_LENGTH + 5, packet_type, piece_index) + byte_string
+        packet = struct.pack(">IBI", PIECE_BYTE_LENGTH + 5, packet_type,
+                             piece_index) + byte_string
     else:
         raise ValueError("Not valid packet type")
     return packet
@@ -79,8 +86,7 @@ def parse_packet(packet):
     packet_type, = struct.unpack(">B", packet[4:5])
 
     payload = None
-    if packet_type in [0, 1, 2,
-                       3]:  # Choke, Unchoke, Interested, Not Interested have no payload
+    if packet_type in [0, 1, 2,3]:  # Choke, Unchoke, Interested, Not Interested have no payload
         payload = None
     elif packet_type == 4:  # Have Message
         payload = struct.unpack(">I", packet[5:9])[0]
@@ -91,7 +97,8 @@ def parse_packet(packet):
         packet_index, file_id = struct.unpack(">II", packet[5:13])
         payload = {"packet_index": packet_index, "file_id": file_id}
     elif packet_type == 7:  # Piece Message
-        payload = packet[9:]        
+        packet_index, = struct.unpack(">I", packet[5:9])
+        payload = {"packet_index": packet_index, "piece": packet[9:]}
     else:
         raise ValueError("Invalid packet type")
     return {
@@ -120,10 +127,10 @@ if __name__ == "__main__":
     print(parsed_data)
 
     print("Splitting up tiger.jpg")
-    byte_array = Utility.split_file("Peer0", "tiger.jpg") 
+    byte_array = Utility.split_file("Peer0", "tiger.jpg")
     print("First byte string:", byte_array[1])
-    print(f"Length: {len(byte_array[1])}") 
+    print(f"Length: {len(byte_array[1])}")
     example_packet = create_packet(7, 0, byte_array[1])
     parsed_data = parse_packet(example_packet)
-    print(parsed_data) 
-    print(f"Length: {len(parsed_data["payload"])}")
+    print(parsed_data)
+    print(f"Length: {len(parsed_data["payload"]["piece"])}")

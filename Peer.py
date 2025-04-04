@@ -1,11 +1,14 @@
 import argparse
 import ipaddress
+import os
+import random
 import socket
 import struct
 import threading
 import hashlib
 import time
 import ssl
+import Packet
 
 # Dict holding the information about the other peers in the swarm
 swarm = {}
@@ -19,15 +22,15 @@ download_finished = False
 # Flag indicating if we should exit subthreads and close the peer
 exit_peer = False
 
-# List of current peer connections (or dict not sure yet)
-current_peers = {}
+# List of current peer connections - by id
+current_peers = []
 
-# List of download pieces remaining (again also maybe a dict)
+# Dict of the pieces remaining - (file, index) = bytes
 pieces_remaining = {}
 
-# List of downloaded pieces (file, index, string)
-#TODO I think this should be a dictionary. It's a little messy, but an embedded dictionary that look like this 
-# pieces = { file_name: {index: string? I am not sure what string is supposed to be, the binary string of data?}}
+# total number of pieces we want to have
+totalPieces = 0
+# Dict of "downloaded" pieces (file, index) = bytes
 pieces = {}
 
 # TODO depending on how we discover other peers and their pieces, we may want to store a dict showing what users have what pieces
@@ -86,12 +89,55 @@ def update_swarm(ip, port):
             print("Server unavailable for connection")
 
 
-def handle_responses():
-    print("stuff")
-    # This function should handle a response and return information about it
-    # ie if it is a have, dont need to resend a piece (and also return to the
-    # calling function so we can send the next piece) or if it is a request,
-    # send a piece in response
+# For now, do not account for the other side requesting any info, just act as
+# if we are the only ones sending.
+def handle_responses(sock, indexes_on_peer):
+    global lock
+    global pieces_remaining
+    global pieces
+    while len(indexes_on_peer) != 0:
+        packet = sock.recv(4)
+        length, = struct.unpack(">I", packet[:4]) # check length
+        packet = packet + sock.recv(length) # read rest of packet
+        type, payload = Packet.parse_packet(packet)
+        # will handle other types later
+        if type == Packet.PacketType.PIECE:
+            # Make sure the received value matches the hash we have stored.
+            piece_hash = hashlib.sha256(payload["piece"])
+            if piece_hash.digest() != pieces_remaining[(0, payload["packet_index"])]:
+                continue
+
+            # If it matches, remove the index from our search and store the piece
+            lock.acquire()
+            indexes_on_peer.remove(payload["packet_index"])
+            pieces_remaining.pop((0, payload["packet_index"]))
+            pieces[(0, payload["packet_index"])] = payload["piece"]
+            lock.release()
+            # Then respond to the sender with a "have" message.
+            response_packet = Packet.create_packet(4, payload["packet_index"])
+            sock.send(response_packet)
+
+
+# This attempts to create a connection to the target peer port
+def create_sender(peer_ip, peer_port):
+    context = ssl.create_default_context()
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
+        with context.wrap_socket(sock, server_hostname=peer_ip) as ssock:
+            ssock.connect((peer_ip, peer_port))
+            return ssock
+
+
+# Creates a server side listener on the given port
+def create_receiver(port):
+    context = ssl.create_default_context()
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
+        sock.bind(('localhost', port))
+        sock.settimeout(2)
+        sock.listen()
+        with context.wrap_socket(sock, server_side=True) as ssock:
+            return ssock
 
 
 # Just drafting out some protocol ideas
@@ -130,46 +176,46 @@ def sharing():
         if len(current_peers) < 4:
             # Even if we are not using all 4 connections, we cannot download
             # anything if there is nothing left to get
-            if len(pieces_remaining) < 1:
+            if len(pieces_remaining) == 0:
                 print("waiting to see if a peer wants to download")
                 time.sleep(.5)
-            else: # This where the real work happens, communicate with peer
-                # TODO figure out how we will figure out which peer to comm with and which index to request
-                print("Sending data")
+            else:  # This where the real work happens, communicate with peer
+                # TODO figure out how we will figure out which peer to comm with and which indexes to request
+                # for now, we will just use some default values
+                # Assume that this list contains the indexes we want
+                indexes_on_peer = []
+                peer_port = 9500
+                peer_ip = 'localhost'
+                sock = create_sender(peer_ip, peer_port)
+                thread = threading.Thread(target=handle_responses,
+                                          args=(sock, indexes_on_peer))
+                thread.start()
+                while True:
+                    # Make sure we only check the current version of the list.
+                    lock.acquire()
+                    remaining_indexes = indexes_on_peer
+                    lock.release()
+                    if len(indexes_on_peer) == 0:
+                        break
+                    for index in remaining_indexes:
+                        # here, just for testing assume file index is 0, will
+                        # probably be a user arg at final implementation
+                        # Spam requests at target peer
+                        sock.send(Packet.create_packet(6, (index, 0)))
+                    time.sleep(4) # allow some time to receive responses
+                sock.close()
+                # If we now have all the pieces, downloading is done.
+                if len(pieces) < totalPieces:
+                    download_finished = True
+                    break
+                else:
+                    continue
         else:
             # TODO optimistic unchoking procedure
             print("waiting to unchoke a peer")
 
-    # Flag messages are just payload and hash
-    # We can change the numbers, just using 0-3 here
-    # Choke
-    send_packet = struct.pack('>B', 0)
-    send_hash = hashlib.sha256(send_packet)
-    # Unchoke
-    send_packet = struct.pack('>B', 1)
-    send_hash = hashlib.sha256(send_packet)
-    # Interested
-    send_packet = struct.pack('>B', 2)
-    send_hash = hashlib.sha256(send_packet)
-    # Not interested
-    send_packet = struct.pack('>B', 3)
-    send_hash = hashlib.sha256(send_packet)
-    # Have basically is just an ACK with the file name and index
-    file = 3
-    index = 5  # file and index would be whatever piece we just downloaded.
-    send_packet = struct.pack('>BHH', 4, file, index)
-    send_hash = hashlib.sha256(send_packet)
-    # Request is more or less the same as have
-    send_packet = struct.pack('>BHH', 5, file, index)
-    send_hash = hashlib.sha256(send_packet)
-    # Piece would likely be the one to set the total message size, since it has
-    # actual data in it, so we should figure out what size we want to use.
-    data = "test part of a file".encode()
-    send_packet = struct.pack('>BHH', 6, file, index)
-    send_packet += data
-    send_hash = hashlib.sha256(send_packet)
-    # TODO skipped the bitfield one since I am not sure how we are handling that
 
+    # TODO figure out exactly what we want to do when we are done downloading
     while not exit_peer:
         print("waiting to see if a peer wants to download")
         time.sleep(.5)
@@ -180,6 +226,8 @@ def main():
     global local_id
     global download_finished
     global exit_peer
+    global pieces_remaining
+    global totalPieces
 
     parser = argparse.ArgumentParser(
         prog="Peer",
@@ -194,7 +242,18 @@ def main():
 
     args = parser.parse_args()
 
+    # Have this peer "read the metainfo file" upon joining the swarm, ie just
+    # read the hashes of each piece so we can check for corruption.
+    # For now, we just have the file 0, so we read all the index hashes.
+    with open(os.path.join("Peer0", "tiger-hashes.txt"), "rb") as file:
+        index = 0
+        while piece := file.read(32):
+            pieces_remaining[(0, index)] = piece
+            index += 1
+        totalPieces = index
+
     # TODO populate this peer with whatever pieces we want them to have
+    # Assume this will be some subset of the test files.
     # TODO not sure if we want to do the setup here or in a function
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -247,26 +306,35 @@ def main():
     update_thread.start()
 
     time.sleep(10)
-    download_finished = True
-    exit_peer = True
 
-    # TODO figure out how we are checking which users have what chunks
+    # TODO figure out how we will create seeders, currently the only mode is
+    # downloader + we need to probably pass in the file to download as an arg
+    # to peer instances.
+
+    # Maybe something like this to choose the first random peer to connect to
+    # Note that this should probably be done in each peer so they don't need to
+    # wait for the others before connecting (just thinking ahead since we said
+    # we wanted to add variable times to receiving peers)
+    swarm_peers = list(swarm.keys())
+    random.shuffle(swarm_peers) #randomize list order for each peer
+
 
     # TODO actual P2P stuff like making the 4 main threads (and sometimes 5th unchoking thread)
     # Assume that we have a peer we want to connect to here(using localhost)
     # 2 recommended ways of making a socket, not sure which is better.
-    #context = ssl.create_default_context()
-    #with socket.create_connection((swarm[1][1], swarm[1][0])) as sock:
-        #with context.wrap_socket(sock, server_hostname=swarm[1][1]) as ssock:
-            #print(ssock.version())
+    # context = ssl.create_default_context()
+    # with socket.create_connection((swarm[1][1], swarm[1][0])) as sock:
+    # with context.wrap_socket(sock, server_hostname=swarm[1][1]) as ssock:
+    # print(ssock.version())
 
-    #context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    #with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
-        #with context.wrap_socket(sock, server_hostname=swarm[1][1]) as ssock:
-            #print(ssock.version())
-
+    # context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    # with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
+    # with context.wrap_socket(sock, server_hostname=swarm[1][1]) as ssock:
+    # print(ssock.version())
 
     # At the end of downloading (or whenever we decided to stop)
+    download_finished = True
+    exit_peer = True
     try:
         # TODO right now we open a new TCP connection each tracker message, may be inefficient but not sure if we care at the scales we are at
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

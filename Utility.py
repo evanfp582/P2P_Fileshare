@@ -1,7 +1,8 @@
 import hashlib
 import os
 
-PIECE_BYTE_LENGTH = 128 #TODO we need to decide. Chose 128 because the docs say commonly powers of 2
+PIECE_BYTE_LENGTH = 128  # TODO we need to decide. Chose 128 because the docs say commonly powers of 2
+
 
 def split_file(folder, filename):
     """Splits a file into chunks of a given size.
@@ -41,7 +42,6 @@ def reassemble_file(pieces, folder, output_filename):
     output_filename (str): Name of new file.
   """
     remote_files = os.path.join(folder, output_filename)
-    # TODO maybe check total hash in this function before actually writing it locally
     with open(remote_files, "wb") as file:
         for piece in pieces:
             file.write(piece)
@@ -83,3 +83,11 @@ def bytes_to_binary(byte_data):
 if __name__ == "__main__":
     """Just in here for testing purposes, not the cleanest, but can be deleted before we submit"""
     print(create_bitfield({5: "test", 1: "test2", 4: "test3"}, 10))
+    byte_array = split_file("Peer0", "tiger.jpg")
+    # Writing the hashes onto a local file, not sure if we care about making it
+    # a readable format since it is just bytes
+    hashes = piece_hash(byte_array)
+    hash_file = os.path.join("Peer0", "tiger-hashes.txt")
+    with open(hash_file, "wb") as file:
+        for piece in hashes:
+            file.write(piece.digest())
