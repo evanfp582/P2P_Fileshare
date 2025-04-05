@@ -39,6 +39,45 @@ pieces = {}
 lock = threading.Lock()
 
 
+# Does a handshake on a socket connection and closes it on failure
+# After conducting the handshake, make sure the socket is still open, meaning
+# the handshake succeeded, and then begin regular sending.
+def handshake(sock, target_id=0, initiate=True):
+    global local_id
+    handshake_packet = struct.pack('>I12s', 12, "HW4 Protocol")
+    sync_hash = hashlib.sha256("This is the synchronization message.".encode())
+    sock.send(handshake_packet + sync_hash.digest())
+    # The other side should send the exact same thing, but read carefully.
+    length_header = sock.recv(4)
+    length, = struct.unpack('>I', length_header)
+    if length != 12:
+        sock.close()
+        return
+    protocol_header = sock.recv(length)
+    protocol, = struct.unpack('>12s', protocol_header)
+    if protocol != "HW4 Protocol":
+        sock.close()
+        return
+    received_hash = sock.recv(32)
+    if received_hash != sync_hash:
+        sock.close()
+        return
+    # This final step depends on if we are the initiator or the receiver.
+    # If we are the initiator, we expect the peer will respond with the correct
+    # ID value.
+    if initiate:
+        received_id = sock.recv(4)
+        peer_id, = struct.unpack('>I', received_id)
+        if received_id != target_id:
+            sock.close()
+            return
+    # Otherwise, if we are the receiver, send back our ID to prove to the peer
+    # that we are the one it expects to connect to.
+    else:
+        id_packet = struct.pack('>I', local_id)
+        sock.send()
+
+
 def update_swarm(ip, port):
     global swarm
     global lock
@@ -97,14 +136,15 @@ def handle_responses(sock, indexes_on_peer):
     global pieces
     while len(indexes_on_peer) != 0:
         packet = sock.recv(4)
-        length, = struct.unpack(">I", packet[:4]) # check length
-        packet = packet + sock.recv(length) # read rest of packet
+        length, = struct.unpack(">I", packet[:4])  # check length
+        packet = packet + sock.recv(length)  # read rest of packet
         type, payload = Packet.parse_packet(packet)
         # will handle other types later
         if type == Packet.PacketType.PIECE:
             # Make sure the received value matches the hash we have stored.
             piece_hash = hashlib.sha256(payload["piece"])
-            if piece_hash.digest() != pieces_remaining[(0, payload["packet_index"])]:
+            if piece_hash.digest() != pieces_remaining[
+                (0, payload["packet_index"])]:
                 continue
 
             # If it matches, remove the index from our search and store the piece
@@ -202,7 +242,7 @@ def sharing():
                         # probably be a user arg at final implementation
                         # Spam requests at target peer
                         sock.send(Packet.create_packet(6, (index, 0)))
-                    time.sleep(4) # allow some time to receive responses
+                    time.sleep(4)  # allow some time to receive responses
                 sock.close()
                 # If we now have all the pieces, downloading is done.
                 if len(pieces) < totalPieces:
@@ -213,7 +253,6 @@ def sharing():
         else:
             # TODO optimistic unchoking procedure
             print("waiting to unchoke a peer")
-
 
     # TODO figure out exactly what we want to do when we are done downloading
     while not exit_peer:
@@ -316,8 +355,7 @@ def main():
     # wait for the others before connecting (just thinking ahead since we said
     # we wanted to add variable times to receiving peers)
     swarm_peers = list(swarm.keys())
-    random.shuffle(swarm_peers) #randomize list order for each peer
-
+    random.shuffle(swarm_peers)  # randomize list order for each peer
 
     # TODO actual P2P stuff like making the 4 main threads (and sometimes 5th unchoking thread)
     # Assume that we have a peer we want to connect to here(using localhost)
