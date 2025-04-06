@@ -50,14 +50,14 @@ def reassemble_file(pieces, folder, output_filename):
 def create_bitfield(pieces, file_length):
     """Create a bitfield for the pieces dictionary for the specified file
   Args:
-    pieces (dictionary): file = {index: string}
+    pieces (dictionary): (file, index) = string
     file_length (int): total length of the file (in terms of pieces)
   Returns:
     byte bitfield
   """
     bit_array = ["0"] * file_length
     for index in list(pieces.keys()):
-        bit_array[index] = "1"
+        bit_array[index[1]] = "1"
     string_of_bits = "".join(bit_array)
 
     bitfield = string_of_bits.ljust((len(string_of_bits) + 7) // 8 * 8, '0')
@@ -82,7 +82,7 @@ def bytes_to_binary(byte_data):
 
 if __name__ == "__main__":
     """Just in here for testing purposes, not the cleanest, but can be deleted before we submit"""
-    print(create_bitfield({5: "test", 1: "test2", 4: "test3"}, 10))
+    print(create_bitfield({(0,5): "test", (0, 1): "test2", (0, 4): "test3"}, 10))
     byte_array = split_file("Peer0", "tiger.jpg")
     # Writing the hashes onto a local file, not sure if we care about making it
     # a readable format since it is just bytes
