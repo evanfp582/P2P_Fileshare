@@ -39,6 +39,25 @@ pieces = {}
 lock = threading.Lock()
 
 
+def check_and_send(sock: ssl.SSLSocket, file_id, packet_index):
+    """Check if the peer at the other end of sock has the piece we are looking for
+    Args:
+        sock (ssl.SSLSocket): open socket
+        file_id (int): file id of piece
+        packet_index (int): index for requested piece
+    """
+    #TODO does this make more sense to be in handle_responses function
+    request_packet = Packet.create_packet(6, packet_index, file_id)
+    sock.send(request_packet)
+    #Asks the peer at the socket if they have piece (file_id, packet_index)
+    length, = struct.unpack(">I", packet[:4])
+    packet = packet + sock.recv(length)
+    type, payload = Packet.parse_packet(packet)
+    if type == Packet.PacketType.HAVE:
+        #The peer has a packet we are looking for
+        handshake(sock)
+        #TODO if sock is still up and running go into sending mode
+ 
 # Does a handshake on a socket connection and closes it on failure
 # After conducting the handshake, make sure the socket is still open, meaning
 # the handshake succeeded, and then begin regular sending.
@@ -141,22 +160,31 @@ def handle_responses(sock, indexes_on_peer):
         type, payload = Packet.parse_packet(packet)
         # will handle other types later
         if type == Packet.PacketType.PIECE:
+            #Temporary hardcoded file_id
+            file_id = 0
+            
             # Make sure the received value matches the hash we have stored.
             piece_hash = hashlib.sha256(payload["piece"])
             if piece_hash.digest() != pieces_remaining[
-                (0, payload["packet_index"])]:
+                (file_id, payload["packet_index"])]:
                 continue
 
             # If it matches, remove the index from our search and store the piece
             lock.acquire()
             indexes_on_peer.remove(payload["packet_index"])
-            pieces_remaining.pop((0, payload["packet_index"]))
-            pieces[(0, payload["packet_index"])] = payload["piece"]
+            pieces_remaining.pop((file_id, payload["packet_index"]))
+            pieces[(file_id, payload["packet_index"])] = payload["piece"]
             lock.release()
             # Then respond to the sender with a "have" message.
-            response_packet = Packet.create_packet(4, payload["packet_index"])
+            response_packet = Packet.create_packet(4, payload["packet_index"], file_id)
             sock.send(response_packet)
-
+        elif type == Packet.PacketType.REQUEST:
+            packet_index, file_id = payload["packet_index"], payload["file_id"]
+            if (file_id, packet_index) in pieces:
+                #We have the requested packet so I am going to say I have it
+                response_packet = Packet.create_packet(Packet.PacketType.HAVE, packet_index, file_id)
+            else:
+                continue #What do we want to send back if they do not have the piece?
 
 # This attempts to create a connection to the target peer port
 def create_sender(peer_ip, peer_port):
@@ -226,8 +254,8 @@ def sharing():
                 indexes_on_peer = []
                 peer_port = 9500
                 peer_ip = 'localhost'
-                sock = create_sender(peer_ip, peer_port)
-                thread = threading.Thread(target=handle_responses,
+                sock = create_sender(peer_ip, peer_port) 
+                thread = threading.Thread(target=handle_responses, #TODO Evan question. Why are we creating multiple threads all going to the same ip:port
                                           args=(sock, indexes_on_peer))
                 thread.start()
                 while True:

@@ -1,14 +1,8 @@
-import hashlib
 import struct
 from enum import Enum
 import Utility
 
 PIECE_BYTE_LENGTH = 128  # TODO we need to decide. Chose 128 because the docs say commonly powers of 2
-
-
-# Honestly, I think 128 is fine, it is big enough to be a reasonable protocol
-# but small enough that we can send a lot of messages using a very basic
-# set of test files.
 
 class PacketType(Enum):
     CHOKE = 0
@@ -29,10 +23,11 @@ def create_packet(packet_type, *args):
       1 Unchoke Message - No extra arguments  
       2 Interested Message - No extra arguments  
       3 Not Interested Message - No extra arguments  
-      4 Have Message - Piece index requested   
+      4 Have Message - Piece index and file requested   
       5 Bitfield Message - bitfield bytes (see Utility.create_bitfield)  
       6 Request Message - Packet index, file id  
-      7 Piece Message - Piece index, bytes to send (see Utility.split_file to create the byte list)  
+      7 Piece Message - Piece index, bytes to send 
+        (see Utility.split_file to create the byte list)  
   Raises:
       ValueError: In the event wrong length or invalid argument  
   Returns:
@@ -42,10 +37,12 @@ def create_packet(packet_type, *args):
     if packet_type in [0, 1, 2, 3]:
         packet = struct.pack(">IB", 1, packet_type)
     elif packet_type == 4:
-        if len(args) != 1:
-            raise ValueError("Have type requires piece_index (int) argument")
+        if len(args) != 2:
+            raise ValueError(
+                "Have type requires piece_index (int) and file_num (int) argument")
         index = args[0]
-        packet = struct.pack(">IBI", 5, packet_type, index)
+        file_num = args[1]
+        packet = struct.pack(">IBII", 9, packet_type, index, file_num)
     elif packet_type == 5:
         if len(args) != 1:
             raise ValueError("Bitfield type requires bitfield(bytes) argument")
@@ -86,10 +83,12 @@ def parse_packet(packet):
     packet_type, = struct.unpack(">B", packet[4:5])
 
     payload = None
-    if packet_type in [0, 1, 2,3]:  # Choke, Unchoke, Interested, Not Interested have no payload
+    # Choke, Unchoke, Interested, Not Interested have no payload
+    if packet_type in [0, 1, 2,3]:  
         payload = None
     elif packet_type == 4:  # Have Message
-        payload = struct.unpack(">I", packet[5:9])[0]
+        packet_index, file_id = struct.unpack(">II", packet[5:13])
+        payload = {"packet_index": packet_index, "file_id": file_id}
     elif packet_type == 5:  # Bitfield Message
         bit_string = Utility.bytes_to_binary(packet[5:length + 4])
         payload = bit_string
@@ -109,7 +108,8 @@ def parse_packet(packet):
 
 if __name__ == "__main__":
     index = 100
-    example_packet = create_packet(4, index)  # Create a have packet
+    file_num = 3
+    example_packet = create_packet(4, index, file_num)  # Create a have packet
     parsed_data = parse_packet(example_packet)
     print(parsed_data)
 
