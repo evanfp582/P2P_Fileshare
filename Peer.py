@@ -9,6 +9,10 @@ import hashlib
 import time
 import ssl
 import Packet
+import Utility
+
+# TODO after we get everything working, go back through and make sure we handle potential socket errors and concurrent access.
+
 
 # Dict holding the information about the other peers in the swarm
 swarm = {}
@@ -22,8 +26,8 @@ download_finished = False
 # Flag indicating if we should exit subthreads and close the peer
 exit_peer = False
 
-# List of current peer connections - by id
-current_peers = []
+# Dict of current peers - {id, RTT}
+current_peers = {}
 
 # Dict of the pieces remaining - (file, index) = bytes
 pieces_remaining = {}
@@ -33,15 +37,12 @@ totalPieces = 0
 # Dict of "downloaded" pieces (file, index) = bytes
 pieces = {}
 
-# TODO depending on how we discover other peers and their pieces, we may want to store a dict showing what users have what pieces
-
 # Lock for managing local swarm list and file info
 lock = threading.Lock()
 
 
 # Does a handshake on a socket connection and closes it on failure
-# After conducting the handshake, make sure the socket is still open, meaning
-# the handshake succeeded, and then begin regular sending.
+# After conducting the handshake, returns True on success, False otherwise.
 def handshake(sock, target_id=0, initiate=True):
     global local_id
     handshake_packet = struct.pack('>I12s', 12, "HW4 Protocol")
@@ -52,40 +53,45 @@ def handshake(sock, target_id=0, initiate=True):
     length, = struct.unpack('>I', length_header)
     if length != 12:
         sock.close()
-        return
+        return False
     protocol_header = sock.recv(length)
     protocol, = struct.unpack('>12s', protocol_header)
     if protocol != "HW4 Protocol":
         sock.close()
-        return
+        return False
     received_hash = sock.recv(32)
     if received_hash != sync_hash:
         sock.close()
-        return
+        return False
     # This final step depends on if we are the initiator or the receiver.
     # If we are the initiator, we expect the peer will respond with the correct
     # ID value.
     if initiate:
         received_id = sock.recv(4)
         peer_id, = struct.unpack('>I', received_id)
-        if received_id != target_id:
+        if peer_id != target_id:
             sock.close()
-            return
+            return False
     # Otherwise, if we are the receiver, send back our ID to prove to the peer
     # that we are the one it expects to connect to.
     else:
         id_packet = struct.pack('>I', local_id)
-        sock.send()
+        sock.send(id_packet)
+
+    time.sleep(1)  # Sleep to give other side chance to process.
+    return True
 
 
-def update_swarm(ip, port):
+# Used for background threads that download updated versions of swarm.
+def update_swarm(local_port, s_ip, s_port):
     global swarm
     global lock
     global download_finished
     while not download_finished:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((ip, port))
+            sock.bind(('localhost', local_port))
+            sock.connect((s_ip, s_port))
             # Refresh message is code 1, id 0
             send_packet = struct.pack('>BH', 1, 0)
             send_hash = hashlib.sha256(send_packet)
@@ -113,6 +119,7 @@ def update_swarm(ip, port):
                     break
 
             lock.acquire()
+            # TODO there may be a better approach then completely replacing the swarm string every time we request a refresh.
             for i in range(length):
                 peer_id, peer_port, peer_ip = (
                     struct.unpack('>HHI', response_packet[i:i + 8]))
@@ -143,8 +150,8 @@ def handle_responses(sock, indexes_on_peer):
         if type == Packet.PacketType.PIECE:
             # Make sure the received value matches the hash we have stored.
             piece_hash = hashlib.sha256(payload["piece"])
-            if piece_hash.digest() != pieces_remaining[
-                (0, payload["packet_index"])]:
+            if (piece_hash.digest() !=
+                    pieces_remaining[(0, payload["packet_index"])]):
                 continue
 
             # If it matches, remove the index from our search and store the piece
@@ -159,11 +166,12 @@ def handle_responses(sock, indexes_on_peer):
 
 
 # This attempts to create a connection to the target peer port
-def create_sender(peer_ip, peer_port):
+def create_sender(local_port, peer_ip, peer_port):
     context = ssl.create_default_context()
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
         with context.wrap_socket(sock, server_hostname=peer_ip) as ssock:
+            ssock.bind(('localhost', local_port))
             ssock.connect((peer_ip, peer_port))
             return ssock
 
@@ -204,45 +212,96 @@ def create_receiver(port):
 # currently, I imagine each connector having 2 threads, one for each direction,
 # though it is also true that in addition to transferring information, we will
 # also need to handle acks and the like, so we may want 1 thread instead.
-def sharing():
+def sharing(local_port):
     global download_finished
     global lock
     global swarm
     global current_peers
     global pieces_remaining
     global exit_peer
+    global local_id
+    global totalPieces
 
     while not download_finished:
         if len(current_peers) < 4:
             # Even if we are not using all 4 connections, we cannot download
             # anything if there is nothing left to get
             if len(pieces_remaining) == 0:
-                print("waiting to see if a peer wants to download")
+                # TODO do we even need receiver mode here?
+                print("Waiting to see if we need to handle downloads")
                 time.sleep(.5)
             else:  # This where the real work happens, communicate with peer
-                # TODO figure out how we will figure out which peer to comm with and which indexes to request
-                # for now, we will just use some default values
-                # Assume that this list contains the indexes we want
+                # Continue to iterate while we can still form a connection
+                while len(current_peers) < 4:
+                    # Randomize list of peers, and choose the first one.
+                    swarm_peers = list(swarm.keys())
+                    random.shuffle(swarm_peers)
+                    test_peer = swarm_peers[0]
+                    if test_peer != local_id and test_peer not in current_peers.keys():
+                        # Try connecting on the 4 primary ports of the target.
+                        peer_port, peer_ip = swarm[test_peer]
+                        port_offset = 1
+                        while port_offset < 5:
+                            try:
+                                sock = create_sender(local_port, peer_port, peer_ip)
+                            except ConnectionRefusedError: # TODO make sure this is actually the error that shows up when a TCP receiver is already communicating with someone else
+                                port_offset += 1
+                                continue
+                            break
+                        if port_offset == 5:
+                            continue
+                        # Now, we have a peer, so try to handshake.
+                        connected = handshake(sock)
+                        if not connected:
+                            continue
+                        else:
+                            break
+                    else:
+                        continue
+
+                # At this point, we have successfully handshaked with a peer.
+                # Since we are handshaking, send bitfield to peer to determine
+                # what pieces they have (though it could be none).
                 indexes_on_peer = []
-                peer_port = 9500
-                peer_ip = 'localhost'
-                sock = create_sender(peer_ip, peer_port)
+                # Note here that we just use pieces since we assume we only
+                # ever download one file type.
+                file_id = 0 # TODO again have a better way of setting file id
+                current_bitfield = Utility.create_bitfield(pieces, totalPieces)
+                bitfield_packet = Packet.create_packet(5, (0, current_bitfield))
+                sock.send(bitfield_packet)
+                start_time = time.time()
+                packet = sock.recv(4)
+                end_time = time.time()
+                length, = struct.unpack(">I", packet[:4])
+                packet = packet + sock.recv(length)
+                # It can only be a bitfield, so dont even bother checking type.
+                # The receiver will also only ever send back the type we send
+                # them, so don't check the file id either.
+                _, payload = Packet.parse_packet(packet)
+                # Read in all the pieces the other peer has.
+                for i in range(totalPieces):
+                    if payload["bitfield"][i] == '1':
+                        indexes_on_peer.append(i)
+
+                # Start handler thread in the background.
                 thread = threading.Thread(target=handle_responses,
                                           args=(sock, indexes_on_peer))
                 thread.start()
                 while True:
-                    # Make sure we only check the current version of the list.
-                    lock.acquire()
-                    remaining_indexes = indexes_on_peer
-                    lock.release()
                     if len(indexes_on_peer) == 0:
                         break
+                    lock.acquire()
+                    # Perform set difference on the indexes on peer with the
+                    # pieces we already have so that we only request those we need.
+                    set1 = set(indexes_on_peer)
+                    set2 = set(p[1] for p in pieces.keys())
+                    remaining_indexes = list(set1 - set2)
+                    lock.release()
                     for index in remaining_indexes:
-                        # here, just for testing assume file index is 0, will
-                        # probably be a user arg at final implementation
                         # Spam requests at target peer
-                        sock.send(Packet.create_packet(6, (index, 0)))
-                    time.sleep(4)  # allow some time to receive responses
+                        sock.send(Packet.create_packet(6, (index, file_id)))
+                    time.sleep(2)  # allow some time to receive responses.
+                # Sever connection when we have gotten all the files we can.
                 sock.close()
                 # If we now have all the pieces, downloading is done.
                 if len(pieces) < totalPieces:
@@ -255,6 +314,7 @@ def sharing():
             print("waiting to unchoke a peer")
 
     # TODO figure out exactly what we want to do when we are done downloading
+    # probably just be a reciever until the user exits
     while not exit_peer:
         print("waiting to see if a peer wants to download")
         time.sleep(.5)
@@ -273,29 +333,42 @@ def main():
         description="Acts as a peer in the P2P swarm.")
     parser.add_argument("-p", metavar="port range", type=int, default=9000,
                         help="Port range used by this peer. For a given i, "
-                             "port i to i + 4 are used for peers.")
+                             "port i is used to communicate with tracker "
+                             "while i + 1 to i + 5 are used for peers.")
     parser.add_argument("-i", metavar="tracker ip", type=str,
                         required=True, help="IP address of tracker server.")
     parser.add_argument("-d", metavar="tracker port", type=int,
                         default=9999, help="Port of tracker server.")
+    parser.add_argument("-S", action="store_true",
+                        help="If enabled, this peer acts as a seeder.")
 
     args = parser.parse_args()
+
+    # TODO have some way of indicating which file we want to download
 
     # Have this peer "read the metainfo file" upon joining the swarm, ie just
     # read the hashes of each piece so we can check for corruption.
     # For now, we just have the file 0, so we read all the index hashes.
-    with open(os.path.join("Peer0", "tiger-hashes.txt"), "rb") as file:
-        index = 0
-        while piece := file.read(32):
-            pieces_remaining[(0, index)] = piece
-            index += 1
-        totalPieces = index
+    if not args.S:
+        with open(os.path.join("Peer0", "tiger-hashes.txt"), "rb") as file:
+            index = 0
+            while piece := file.read(32):
+                pieces_remaining[(0, index)] = piece
+                index += 1
+            totalPieces = index
+    # Otherwise, let them be populated with (for now) a random 20% of the file.
+    # Also currently only gets file 0
+    else:
+        full_file = Utility.split_file("Peer0", "tiger.jpg")
+        full_file_dict = dict(enumerate(full_file))
+        while len(pieces) < len(full_file_dict) / 5:
+            load_piece = random.choice(list(full_file_dict.keys()))
+            pieces[(0, load_piece)] = full_file_dict[load_piece]
 
-    # TODO populate this peer with whatever pieces we want them to have
-    # Assume this will be some subset of the test files.
-    # TODO not sure if we want to do the setup here or in a function
+    # Receive swarm peers from tracker.
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(('localhost', args.p))
         sock.connect((args.i, args.d))
         # Initial message should just be code 0, id = given port range
         send_packet = struct.pack('>BH', 0, args.p)
@@ -337,18 +410,18 @@ def main():
     except ConnectionRefusedError:
         print("Server unavailable for connection")
 
-    print(swarm)
     time.sleep(1)
     # Start the background tracker sync function.
     update_thread = threading.Thread(target=update_swarm,
-                                     args=(args.i, args.d))
+                                     args=(args.p, args.i, args.d))
     update_thread.start()
 
-    time.sleep(10)
+    # TODO setup stuff here
+    # Make 4 threads for each of the download streams when we can
 
-    # TODO figure out how we will create seeders, currently the only mode is
-    # downloader + we need to probably pass in the file to download as an arg
-    # to peer instances.
+    # TODO make a thread to handle optimistic unchoking, should start offset
+    # from the others to avoid race condition
+    time.sleep(10)
 
     # Maybe something like this to choose the first random peer to connect to
     # Note that this should probably be done in each peer so they don't need to
@@ -376,6 +449,7 @@ def main():
     try:
         # TODO right now we open a new TCP connection each tracker message, may be inefficient but not sure if we care at the scales we are at
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(('localhost', args.p))
         sock.connect((args.i, args.d))
         send_packet = struct.pack('>BH', 1, local_id)
         send_hash = hashlib.sha256(send_packet)

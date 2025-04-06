@@ -51,7 +51,7 @@ def create_bitfield(pieces, file_length):
     """Create a bitfield for the pieces dictionary for the specified file
   Args:
     pieces (dictionary): file = {index: string}
-    file_length (int): total length of the file
+    file_length (int): total length of the file (in terms of pieces)
   Returns:
     byte bitfield
   """
