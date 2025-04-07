@@ -45,9 +45,9 @@ lock = threading.Lock()
 # After conducting the handshake, returns True on success, False otherwise.
 def handshake(sock, target_id=0, initiate=True):
     global local_id
-    handshake_packet = struct.pack('>I12s', 12, "HW4 Protocol")
+    handshake_packet = struct.pack('>I', 12)
     sync_hash = hashlib.sha256("This is the synchronization message.".encode())
-    sock.send(handshake_packet + sync_hash.digest())
+    sock.send(handshake_packet + "HW4 Protocol".encode() + sync_hash.digest())
     # The other side should send the exact same thing, but read carefully.
     length_header = sock.recv(4)
     length, = struct.unpack('>I', length_header)
@@ -55,12 +55,11 @@ def handshake(sock, target_id=0, initiate=True):
         sock.close()
         return False
     protocol_header = sock.recv(length)
-    protocol, = struct.unpack('>12s', protocol_header)
-    if protocol != "HW4 Protocol":
+    if protocol_header.decode() != "HW4 Protocol":
         sock.close()
         return False
     received_hash = sock.recv(32)
-    if received_hash != sync_hash:
+    if received_hash != sync_hash.digest():
         sock.close()
         return False
     # This final step depends on if we are the initiator or the receiver.
@@ -121,7 +120,7 @@ def update_swarm(s_ip, s_port):
             # TODO there may be a better approach then completely replacing the swarm string every time we request a refresh.
             for i in range(length):
                 peer_id, peer_port, peer_ip = (
-                    struct.unpack('>HHI', response_packet[i:i + 8]))
+                    struct.unpack('>HHI', response_packet[i * 8:i * 8 + 8]))
                 swarm[peer_id] = peer_port, str(ipaddress.ip_address(peer_ip))
             lock.release()
 
@@ -171,26 +170,29 @@ def handle_responses(sock, indexes_on_peer):
 
 # This attempts to create a connection to the target peer port
 def create_sender(local_port, peer_ip, peer_port):
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    #context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    #print(context.get_ciphers())
+    #context = ssl.create_default_context()
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
-        with context.wrap_socket(sock, server_hostname=peer_ip) as ssock:
-            ssock.bind(('localhost', local_port))
-            ssock.connect((peer_ip, peer_port))
-            return ssock
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+    #with context.wrap_socket(sock, server_hostname=peer_ip) as ssock:
+    sock.bind(('localhost', local_port))
+    sock.connect((peer_ip, peer_port))
+    return sock
 
 
 # Creates a server side listener on the given port
 def create_receiver(port):
-    # context = ssl.create_default_context()
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    #context = ssl.create_default_context()
+    #context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    #print(context.get_ciphers())
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
         sock.bind(('localhost', port))
         sock.listen()
-        with context.wrap_socket(sock, server_side=True) as ssock:
-            conn, addr = ssock.accept()
-            return conn
+        #with context.wrap_socket(sock, server_hostname='localhost') as ssock:
+        conn, addr = sock.accept()
+        return conn
             
 
 
@@ -200,8 +202,7 @@ def receiver(local_port):
     # Wait until some downloader comes along
     # TODO do we want seeders to have some way to shut off or do they go infinitely like the tracker -Evan I am thinking infinitely like the tracker until the user just force stops it
     while True:
-        sock = create_receiver(local_port)
-        peer_sock, _ = sock.accept()
+        peer_sock = create_receiver(local_port)
         # Handshake with new peer.
         connected = handshake(peer_sock)
         if not connected:
@@ -210,9 +211,9 @@ def receiver(local_port):
         # Main difference is that we need to track what file the pieces are on
         # since we are not downloading a single file.
         indexes_on_peer = []
-        packet = sock.recv(4)
+        packet = peer_sock.recv(4)
         length, = struct.unpack(">I", packet[:4])
-        packet = packet + sock.recv(length)
+        packet = packet + peer_sock.recv(length)
         _, payload = Packet.parse_packet(packet)
         file_id = payload["file_id"]
         # Read in all the pieces the other peer has.
@@ -233,7 +234,7 @@ def receiver(local_port):
         seeder_bitfield = Utility.create_bitfield(relevant_pieces, file_len)
         bitfield_packet = Packet.create_packet(5,
                                                (file_id, seeder_bitfield))
-        sock.send(bitfield_packet)
+        peer_sock.send(bitfield_packet)
 
         # Now normal communication occurs
         # Should obviously be able to handle request messages( those are easy
@@ -275,22 +276,7 @@ def sharing(local_port):
                     random.shuffle(swarm_peers)
                     test_peer = swarm_peers[0]
                     if test_peer != local_id and test_peer not in current_peers.keys():
-                        # Try connecting on the 4 primary ports of the target.
-                        peer_port, peer_ip = swarm[test_peer]
-                        port_offset = 1
-                        while port_offset < 5:
-                            try:
-                                sock = create_sender(local_port,
-                                                     peer_ip,
-                                                     peer_port + port_offset)
-                            except ConnectionRefusedError:  # TODO make sure this is actually the error that shows up when a TCP receiver is already communicating with someone else
-                                port_offset += 1
-                                continue
-                            break
-                        if port_offset == 5:
-                            continue
-                        # TODO this behavior currently makes it so we can only have one peer to peer connection for each peer. Do we want to allow parallel pipelining? -Evan I do not think that is necessary
-                        # One last check to make sure we are still clear.
+                        # Claim the peer so no one else tries
                         lock.acquire()
                         if test_peer in current_peers.keys() or len(
                                 current_peers) >= 4:
@@ -299,9 +285,29 @@ def sharing(local_port):
                         # If so, claim the peer by putting in the shared dict.
                         current_peers[test_peer] = -1.0
                         lock.release()
+                        # Try connecting on the 4 primary ports of the target.
+                        peer_port, peer_ip = swarm[test_peer]
+                        port_offset = 0
+                        while port_offset < 4:
+                            try:
+                                sock = create_sender(local_port,
+                                                     peer_ip,
+                                                     peer_port + port_offset)
+                                break
+                            except ConnectionRefusedError:  # TODO make sure this is actually the error that shows up when a TCP receiver is already communicating with someone else
+                                port_offset += 1
+                                sock.close()
+                                continue
+                        if port_offset == 4:
+                            lock.acquire()
+                            current_peers.pop(test_peer)
+                            lock.release()
+                            continue
+                        # TODO this behavior currently makes it so we can only have one peer to peer connection for each peer. Do we want to allow parallel pipelining? -Evan I do not think that is necessary
                         # Now, we have a peer, so try to handshake.
                         connected = handshake(sock)
                         if not connected:
+                            sock.close()
                             # If for some reason handshake failed, release peer
                             lock.acquire()
                             current_peers.pop(test_peer)
@@ -462,7 +468,7 @@ def main():
         # Now that we have confirmed swarm is successfully received, read it.
         for i in range(length):
             peer_id, peer_port, peer_ip = (
-                struct.unpack('>HHI', response_packet[i:i + 8]))
+                struct.unpack('>HHI', response_packet[i*8:i*8 + 8]))
             swarm[peer_id] = peer_port, str(ipaddress.ip_address(peer_ip))
 
         sock.close()
