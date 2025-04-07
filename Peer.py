@@ -52,15 +52,12 @@ def handshake(sock, target_id=0, initiate=True):
     length_header = sock.recv(4)
     length, = struct.unpack('>I', length_header)
     if length != 12:
-        sock.close()
         return False
     protocol_header = sock.recv(length)
     if protocol_header.decode() != "HW4 Protocol":
-        sock.close()
         return False
     received_hash = sock.recv(32)
     if received_hash != sync_hash.digest():
-        sock.close()
         return False
     # This final step depends on if we are the initiator or the receiver.
     # If we are the initiator, we expect the peer will respond with the correct
@@ -69,7 +66,6 @@ def handshake(sock, target_id=0, initiate=True):
         received_id = sock.recv(4)
         peer_id, = struct.unpack('>I', received_id)
         if peer_id != target_id:
-            sock.close()
             return False
     # Otherwise, if we are the receiver, send back our ID to prove to the peer
     # that we are the one it expects to connect to.
@@ -194,7 +190,6 @@ def create_receiver(port):
         conn, addr = sock.accept()
         return conn
             
-
 
 # work in progress function for receiver thread
 def receiver(local_port):
