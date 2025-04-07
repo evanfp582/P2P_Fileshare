@@ -125,7 +125,7 @@ def update_swarm(s_ip, s_port):
                 swarm[peer_id] = peer_port, str(ipaddress.ip_address(peer_ip))
             lock.release()
 
-            print(swarm)
+            print("swarm: ", swarm)
             sock.close()
             time.sleep(3)  # For now, update every 3 seconds
         except ConnectionResetError:
@@ -135,7 +135,7 @@ def update_swarm(s_ip, s_port):
 
 
 # For now, do not account for the other side requesting any info, just act as
-# if we are the only ones sending.
+# if we are the only ones sending. TODO manage handle_responses and hand_requests and make it work for downloader and seeder
 def handle_responses(sock, indexes_on_peer):
     global lock
     global pieces_remaining
@@ -164,11 +164,14 @@ def handle_responses(sock, indexes_on_peer):
             # Then respond to the sender with a "have" message.
             response_packet = Packet.create_packet(4, payload["packet_index"])
             sock.send(response_packet)
+        #TODO Have: ACKs for sending as well as new pieces in duration of connection
+        #TODO Request for the reciever: 
+
 
 
 # This attempts to create a connection to the target peer port
 def create_sender(local_port, peer_ip, peer_port):
-    context = ssl.create_default_context()
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
         with context.wrap_socket(sock, server_hostname=peer_ip) as ssock:
@@ -179,20 +182,23 @@ def create_sender(local_port, peer_ip, peer_port):
 
 # Creates a server side listener on the given port
 def create_receiver(port):
-    context = ssl.create_default_context()
+    # context = ssl.create_default_context()
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
         sock.bind(('localhost', port))
         sock.listen()
         with context.wrap_socket(sock, server_side=True) as ssock:
-            return ssock
+            conn, addr = ssock.accept()
+            return conn
+            
 
 
 # work in progress function for receiver thread
 def receiver(local_port):
     global pieces
     # Wait until some downloader comes along
-    # TODO do we want seeders to have some way to shut off or do they go infinitely like the tracker
+    # TODO do we want seeders to have some way to shut off or do they go infinitely like the tracker -Evan I am thinking infinitely like the tracker until the user just force stops it
     while True:
         sock = create_receiver(local_port)
         peer_sock, _ = sock.accept()
@@ -275,15 +281,15 @@ def sharing(local_port):
                         while port_offset < 5:
                             try:
                                 sock = create_sender(local_port,
-                                                     peer_port + port_offset,
-                                                     peer_ip)
+                                                     peer_ip,
+                                                     peer_port + port_offset)
                             except ConnectionRefusedError:  # TODO make sure this is actually the error that shows up when a TCP receiver is already communicating with someone else
                                 port_offset += 1
                                 continue
                             break
                         if port_offset == 5:
                             continue
-                        # TODO this behavior currently makes it so we can only have one peer to peer connection for each peer. Do we want to allow parallel pipelining?
+                        # TODO this behavior currently makes it so we can only have one peer to peer connection for each peer. Do we want to allow parallel pipelining? -Evan I do not think that is necessary
                         # One last check to make sure we are still clear.
                         lock.acquire()
                         if test_peer in current_peers.keys() or len(

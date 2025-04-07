@@ -135,7 +135,7 @@ def main():
                                   args=(peer_sock, peer_addr))
         thread.start()
 
-    # TODO not sure if we want to actually have a way of closing it, or just manually shut it off from terminal when done (leaning towards the latter)
+    # TODO not sure if we want to actually have a way of closing it, or just manually shut it off from terminal when done (leaning towards the latter -Evan as am I)
     sock.close()
 
 
