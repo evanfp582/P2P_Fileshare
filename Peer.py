@@ -43,10 +43,10 @@ pieces = {}
 lock = threading.Lock()
 
 # Mock data to test cli
-mock_file = [bytes([i] * 128) for i in range(5)]
-pieces = {(0,0): mock_file[0], (0,2): mock_file[2], (0,4): mock_file[4]} 
-total_pieces = 5
-pieces_remaining = 2
+# mock_file = [bytes([i] * 128) for i in range(5)]
+# pieces = {(0,0): mock_file[0], (0,2): mock_file[2], (0,4): mock_file[4]} 
+# total_pieces = 5
+# pieces_remaining = 2
 
 # Does a handshake on a socket connection and closes it on failure
 # After conducting the handshake, returns True on success, False otherwise.
