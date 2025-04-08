@@ -21,6 +21,7 @@ mock_file = [bytes([i] * 128) for i in range(5)]
 #TODO You can take a look at this if you want, but it may not be worth your time, this is kinda just for my testing and comprehension
 
 def seeder():
+    """Mock seeder function for testing"""
     pieces = {(0,0): mock_file[0], (0,2): mock_file[2], (0,4): mock_file[4]}
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((HOST, PORT))
@@ -62,6 +63,7 @@ def seeder():
             
 
 def downloader():
+    """Mock downloader function for testing"""
     indexes_on_peer = [0,2,4]
     seeder_bitfield = Utility.create_bitfield({(0,0): mock_file[0], (0,2): mock_file[2], (0,4): mock_file[4]}, 5)
     print("[downloader] Seeder Bitfield",Utility.bytes_to_binary(seeder_bitfield))
@@ -72,16 +74,12 @@ def downloader():
         print("[downloader] Connected to seeder")
         while not shutdown_event.is_set():
             try:
+                # handle_responses(sock, indexes_on_peer)
                 print("[downloader] Idling")
                 time.sleep(3)
             except socket.timeout:
                 continue  # Just try again to check shutdown_event
-        # packet = create_packet(4, 5, 0)
-        # print("[downloader] Created packet ", packet)
-        # sock.send(packet)
-        # data = sock.recv(1024)
-        # print(f"[downloader] Received: {data.decode()}")
-        # handle_responses(sock, indexes_on_peer)
+        
         print("[downloader] Shutdown complete.") 
 
 if __name__ == "__main__":
@@ -91,7 +89,5 @@ if __name__ == "__main__":
   seeder_thread.start()
   downloader_thread.start()
 
-  # seeder_thread.join()
-  # downloader_thread.join()
   #TODO make sure to uncomment lines 46-49 in Peer.py to test
   Peer.cli(shutdown_event, False)

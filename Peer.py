@@ -192,7 +192,7 @@ def handle_responses(sock, indexes_on_peer={}, is_seeder=False):
             sent[(packet_index, file_id)] = time.time()
         elif type == Packet.PacketType.NOT_INTERESTED.name:
             # This is the seeder and the downloader is not interested
-            # TODO elegantly quit
+            # TODO cleanly quit
             print("Unimplemented")
         
         #Check if an ack hit a timeout        
@@ -239,7 +239,6 @@ def create_seeder(port):
 def seeder(local_port):
     global pieces
     # Wait until some downloader comes along
-    # TODO do we want seeders to have some way to shut off or do they go infinitely like the tracker -Evan I am thinking infinitely like the tracker until the user just force stops it
     while not shutdown_event.is_set():
         peer_sock = create_seeder(local_port)
         # Handshake with new peer.
