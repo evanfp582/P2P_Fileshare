@@ -13,6 +13,8 @@ import Utility
 
 # TODO after we get everything working, go back through and make sure we handle potential socket errors and concurrent access.
 
+#Threading event to close down the peer
+shutdown_event = threading.Event()
 
 # Dict holding the information about the other peers in the swarm
 swarm = {}
@@ -33,13 +35,18 @@ current_peers = {}
 pieces_remaining = {}
 
 # total number of pieces we want to have
-totalPieces = 0
+total_pieces = 0
 # Dict of "downloaded" pieces (file, index) = bytes
 pieces = {}
 
 # Lock for managing local swarm list and file info
 lock = threading.Lock()
 
+# Mock data to test cli
+mock_file = [bytes([i] * 128) for i in range(5)]
+pieces = {(0,0): mock_file[0], (0,2): mock_file[2], (0,4): mock_file[4]} 
+total_pieces = 5
+pieces_remaining = 2
 
 # Does a handshake on a socket connection and closes it on failure
 # After conducting the handshake, returns True on success, False otherwise.
@@ -233,7 +240,7 @@ def seeder(local_port):
     global pieces
     # Wait until some downloader comes along
     # TODO do we want seeders to have some way to shut off or do they go infinitely like the tracker -Evan I am thinking infinitely like the tracker until the user just force stops it
-    while True:
+    while not shutdown_event.is_set():
         peer_sock = create_seeder(local_port)
         # Handshake with new peer.
         connected = handshake(peer_sock)
@@ -275,9 +282,10 @@ def seeder(local_port):
         # not get one.
         # TODO how do we want the seeder to download from the downloader? Should it just get any pieces the downloader has that it does not during the communication?
         # TODO how will we handle choking and unchoking, though this also relates heavily to the downloader?
+    print("[Seeder] Shutting down.")
 
 # Big function for handling download thread behavior
-def sharing(local_port):
+def downloader(local_port):
     global download_finished
     global lock
     global swarm
@@ -285,11 +293,11 @@ def sharing(local_port):
     global pieces_remaining
     global exit_peer
     global local_id
-    global totalPieces
+    global total_pieces
 
-    while not download_finished:
+    while not download_finished or not shutdown_event.is_set():
         # Make sure all the lists are synced
-        if len(pieces_remaining) == 0 and len(pieces) == totalPieces:
+        if len(pieces_remaining) == 0 and len(pieces) == total_pieces:
             download_finished = True
             break
         if len(current_peers) < 4:
@@ -359,7 +367,7 @@ def sharing(local_port):
                 # Note here that we just use pieces since we assume we only
                 # ever download one file type.
                 file_id = 0  # TODO again have a better way of setting file id
-                current_bitfield = Utility.create_bitfield(pieces, totalPieces)
+                current_bitfield = Utility.create_bitfield(pieces, total_pieces)
                 bitfield_packet = Packet.create_packet(5,
                                                        (file_id,
                                                         current_bitfield))
@@ -378,7 +386,7 @@ def sharing(local_port):
                 # them, so don't check the file id either.
                 _, payload = Packet.parse_packet(packet)
                 # Read in all the pieces the other peer has.
-                for i in range(totalPieces):
+                for i in range(total_pieces):
                     if payload["bitfield"][i] == '1':
                         indexes_on_peer.append(i)
 
@@ -420,6 +428,33 @@ def sharing(local_port):
         print("waiting to see if a peer wants to download")
         time.sleep(.5)
 
+def cli(shutdown_event, is_seeder: bool):
+    """Runs the command line interface for a peer
+    Args:
+        is_seeder (bool): Changes output depending on if 
+            current peer is seeder or a downloader
+    """
+    print("Welcome to Bit Torrent")
+    if is_seeder: 
+            print("Running Seeder Peer")
+            print("Type 'exit' to quit")
+    else:
+        print("Running Downloader Peer")
+        print("Type 'exit' to quit or 'prog' to see download progress")
+    while not shutdown_event.is_set():
+        cmd = input("[CLI]: ").strip().lower()
+        if cmd == 'exit':
+            shutdown_event.set()
+            break
+        elif cmd == 'prog' and not is_seeder:
+            if download_finished:
+                print("Download Finished")
+            else:
+                print("Download in Progress")
+                print(f"Pieces Remaining: {pieces_remaining}")
+                print(f"{len(pieces)}/{total_pieces} ({len(pieces)/total_pieces * 100}%) downloaded\n")
+    print("[CLI] Shutdown complete.")
+
 
 def main():
     global swarm
@@ -427,7 +462,7 @@ def main():
     global download_finished
     global exit_peer
     global pieces_remaining
-    global totalPieces
+    global total_pieces
 
     parser = argparse.ArgumentParser(
         prog="Peer",
@@ -455,7 +490,7 @@ def main():
             while piece := file.read(32):
                 pieces_remaining[(0, index)] = piece
                 index += 1
-            totalPieces = index
+            total_pieces = index
     # Otherwise, let them be populated with (for now) a random 20% of the file.
     # Also currently only gets file 0
     else:
@@ -515,11 +550,14 @@ def main():
                                      args=(args.i, args.d))
     update_thread.start()
 
+    cli_thread = threading.Thread(target=cli, args=(shutdown_event, args.S))
+    cli_thread.start()
+    
     threads = []
     if not args.S:
         for i in range(4):
             threads.append(
-                threading.Thread(target=sharing, args=(args.p + i,)))
+                threading.Thread(target=downloader, args=(args.p + i,)))
             threads[i].start()
 
         # TODO make a thread to handle optimistic unchoking, should start offset
