@@ -322,7 +322,7 @@ def downloader():
     global total_pieces
 
     while not download_finished or not shutdown_event.is_set():
-        # Make sure all the lists are synced
+        # Make sure all the lists are synced        
         if len(pieces_remaining) == 0 and len(pieces) == total_pieces:
             download_finished = True
             break
@@ -451,8 +451,14 @@ def downloader():
         else:
             # TODO optimistic unchoking procedure
             print("waiting to unchoke a peer")
+            
+    # After all threads have cleaned up, assemble the pieces into a real file
+    filename = "story_copied.txt" #TODO Certainly we'll want to have this elsewhere
+    folder = "Peer1"
+    assemble_pieces = list(pieces.values())
+    Utility.reassemble_file(assemble_pieces, folder, filename)
+    print(f"Successfully Downloaded {filename} to {folder}/{filename}")
 
-    # for now, just end
     shutdown_event.set()
     # TODO figure out exactly what we want to do when we are done downloading
     # TODO I think we can replace exit_peer with the shutdown event since they serve the same purpose(all threads end and exit program)
@@ -485,7 +491,6 @@ def cli(shutdown_event, is_seeder: bool):
                 print("Download Finished")
             else:
                 print("Download in Progress")
-                print(f"Pieces Remaining: {pieces_remaining}")
                 print(
                     f"{len(pieces)}/{total_pieces} ({len(pieces) / total_pieces * 100}%) downloaded\n")
     print("[CLI] Shutdown complete.")
@@ -519,7 +524,7 @@ def main():
     # read the hashes of each piece so we can check for corruption.
     # For now, we just have the file 0, so we read all the index hashes.
     if not args.S:
-        with open(os.path.join("Peer0", "tiger-hashes.txt"), "rb") as file:
+        with open(os.path.join("Peer0", "story-hashes.txt"), "rb") as file:
             index = 0
             while piece := file.read(32):
                 pieces_remaining[(0, index)] = piece
@@ -528,11 +533,14 @@ def main():
     # Otherwise, let them be populated with (for now) a random 20% of the file.
     # Also currently only gets file 0
     else:
-        full_file = Utility.split_file("Peer0", "tiger.jpg")
-        full_file_dict = dict(enumerate(full_file))
-        while len(pieces) < len(full_file_dict):
-            load_piece = random.choice(list(full_file_dict.keys()))
-            pieces[(0, load_piece)] = full_file_dict[load_piece]
+        file_split = Utility.split_file("Peer0", "short_story.txt")
+        #Get a random 80% of the pieces- Currently commented out
+        # file_dict = dict(enumerate(random.sample(file_split, int(len(file_split) * 0.9))))
+        file_dict = dict(enumerate(file_split))
+        
+        while len(pieces) < len(file_dict):
+            load_piece = random.choice(list(file_dict.keys()))
+            pieces[(0, load_piece)] = file_dict[load_piece]
 
     # Receive swarm peers from tracker.
     try:
@@ -606,12 +614,6 @@ def main():
 
     for thread in threads:
         thread.join()
-
-    # After all threads have cleaned up, assemble the pieces into a real file
-    assemble_pieces = list(pieces.values())
-    Utility.reassemble_file(assemble_pieces, "Peer0", "tiger-reassembled")
-
-
 
     try:
         # TODO right now we open a new TCP connection each tracker message, may be inefficient but not sure if we care at the scales we are at

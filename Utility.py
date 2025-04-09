@@ -44,7 +44,7 @@ def reassemble_file(pieces, folder, output_filename):
     remote_files = os.path.join(folder, output_filename)
     with open(remote_files, "wb") as file:
         for piece in pieces:
-            file.write(piece)
+            file.write(piece.rstrip(b'\x00'))
 
 
 def create_bitfield(pieces, file_length):
@@ -83,11 +83,14 @@ def bytes_to_binary(byte_data):
 if __name__ == "__main__":
     """Just in here for testing purposes, not the cleanest, but can be deleted before we submit"""
     print(create_bitfield({(0,5): "test", (0, 1): "test2", (0, 4): "test3"}, 10))
-    byte_array = split_file("Peer0", "tiger.jpg")
+    byte_array = split_file("Peer0", "short_story.txt")
+    print(len(byte_array))
+    print(byte_array)
     # Writing the hashes onto a local file, not sure if we care about making it
     # a readable format since it is just bytes
     hashes = piece_hash(byte_array)
-    hash_file = os.path.join("Peer0", "tiger-hashes.txt")
+    hash_file = os.path.join("Peer0", "story-hashes.txt")
     with open(hash_file, "wb") as file:
         for piece in hashes:
             file.write(piece.digest())
+    # reassemble_file(byte_array, "Peer1", "short_story.txt")
