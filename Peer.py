@@ -16,6 +16,9 @@ import Utility
 # Threading event to close down the peer
 shutdown_event = threading.Event()  # TODO does this need to be declared globally in each function, that is how I did it just to be safe?
 
+# Global flag to prevent multiple copies
+copied_file = False
+
 # Dict holding the information about the other peers in the swarm
 swarm = {}
 
@@ -161,10 +164,9 @@ def handle_responses(sock, indexes_on_peer=None, is_seeder=False):
         if type == Packet.PacketType.PIECE.name:
             # Make sure the received value matches the hash we have stored.
             piece_hash = hashlib.sha256(payload["piece"])
-            if (piece_hash.digest() !=
-                    pieces_remaining[(0, payload["packet_index"])]):
-                continue
             lock.acquire()
+            if (0, payload["packet_index"]) in pieces_remaining and (piece_hash.digest() != pieces_remaining[(0, payload["packet_index"])]):
+                continue
             indexes_on_peer.remove(payload["packet_index"])
             # Only update the global lists if the piece is still needed.
             if (0, payload["packet_index"]) in pieces_remaining:
@@ -320,6 +322,7 @@ def downloader():
     global pieces_remaining
     global local_id
     global total_pieces
+    global copied_file
 
     while not download_finished or not shutdown_event.is_set():
         # Make sure all the lists are synced        
@@ -451,13 +454,17 @@ def downloader():
         else:
             # TODO optimistic unchoking procedure
             print("waiting to unchoke a peer")
-            
-    # After all threads have cleaned up, assemble the pieces into a real file
-    filename = "story_copied.txt" #TODO Certainly we'll want to have this elsewhere
-    folder = "Peer1"
-    assemble_pieces = list(pieces.values())
-    Utility.reassemble_file(assemble_pieces, folder, filename)
-    print(f"Successfully Downloaded {filename} to {folder}/{filename}")
+    
+    lock.acquire()
+    if not copied_file:
+        copied_file = True
+        # After all threads have cleaned up, assemble the pieces into a real file
+        filename = "story_copied.txt" #TODO Certainly we'll want to have this elsewhere
+        folder = "Peer1"
+        assemble_pieces= Utility.sort_by_index(pieces)
+        Utility.reassemble_file(assemble_pieces, folder, filename)
+        print(f"Successfully Downloaded {filename} to {folder}/{filename}")
+    lock.release()
 
     shutdown_event.set()
     # TODO figure out exactly what we want to do when we are done downloading
@@ -534,9 +541,12 @@ def main():
     # Also currently only gets file 0
     else:
         file_split = Utility.split_file("Peer0", "short_story.txt")
-        #Get a random 80% of the pieces- Currently commented out
-        # file_dict = dict(enumerate(random.sample(file_split, int(len(file_split) * 0.9))))
-        file_dict = dict(enumerate(file_split))
+        full_file_dict = dict(enumerate(file_split))
+        #Get a random 95% of the pieces- Currently commented out
+        sampled_keys = random.sample(list(full_file_dict.keys()), int(len(full_file_dict) * 0.95))
+        file_dict =  {key: full_file_dict[key] for key in sampled_keys}
+        
+        print("Missing Values: ", Utility.find_missing_values(list(file_dict.keys())))
         
         while len(pieces) < len(file_dict):
             load_piece = random.choice(list(file_dict.keys()))
@@ -594,7 +604,7 @@ def main():
 
     threads = []
     if not args.S:
-        for i in range(1):
+        for i in range(3):
             threads.append(
                 threading.Thread(target=downloader, args=()))
             threads[i].start()
