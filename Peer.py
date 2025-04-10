@@ -47,7 +47,7 @@ lock = threading.Lock()
 def handshake(sock: socket.socket, target_id=0, initiate=True):
     """Handshake on a socket that closes on failure
     Args:
-        sock (socket): Socket to connect to
+        sock (socket.socket): Socket to connect to
         target_id (int, optional): ID of target socket. 
             Defaults to 0.
         initiate (bool, optional): Whether this peer initiated connection. 
@@ -166,9 +166,7 @@ def handle_responses(sock: socket.socket, file_identifier, indexes_on_peer, is_s
             piece_hash = hashlib.sha256(payload["piece"])
             
             lock.acquire()
-            if (0, payload["packet_index"]) in pieces_remaining and (
-                    piece_hash.digest() != pieces_remaining[
-                (0, payload["packet_index"])]):
+            if (0, payload["packet_index"]) in pieces_remaining and (piece_hash.digest() != pieces_remaining[(0, payload["packet_index"])]):
                 continue
             if payload["packet_index"] in indexes_on_peer:
                 indexes_on_peer.remove(payload["packet_index"])
@@ -203,6 +201,13 @@ def handle_responses(sock: socket.socket, file_identifier, indexes_on_peer, is_s
             if is_seeder and len(indexes_on_peer) != 0:
                 sock.send(
                     Packet.create_packet(6, indexes_on_peer[0], file_id))
+                # Unlike with the sender where we carefully track the indexes
+                # on peer and only remove the item on confirmation, since the
+                # seeder can only request a piece upon receiving a download
+                # request, more aggressively request pieces to get what we can
+                # while we are connected.
+                indexes_on_peer.pop(0)
+
         elif type == Packet.PacketType.NOT_INTERESTED.name:
             # Clear indexes on peer so the outer loop stops looping.
             indexes_on_peer.clear()
@@ -515,8 +520,8 @@ def main():
     if not store_true:
         with open(os.path.join("Peer0", "story-hashes.txt"), "rb") as file:
             index = 0
-            while piece := file.read(32):
-                pieces_remaining[(0, index)] = piece
+            while piece_hash := file.read(32):
+                pieces_remaining[(0, index)] = piece_hash
                 index += 1
             total_pieces = index
     else:
@@ -525,6 +530,9 @@ def main():
         # Get a random 95% of the pieces
         sampled_keys = random.sample(list(full_file_dict.keys()),
                                      int(len(full_file_dict) * 0.95))
+
+        # TODO this is the testing scheme I used to ensure that all of the files would be perfectly evenly distributed among 5 peers
+        #sampled_keys = list(range(int(len(full_file_dict) * .8), int(len(full_file_dict) * 1)))
         file_dict = {key: full_file_dict[key] for key in sampled_keys}
 
         print("Missing Values: ",
@@ -533,6 +541,18 @@ def main():
         while len(pieces) < len(file_dict):
             load_piece = random.choice(list(file_dict.keys()))
             pieces[(0, load_piece)] = file_dict[load_piece]
+
+        # TODO this is an addition I just made that we should have thought of earlier
+        # TODO the seeders are also supposed to be clients as well, therefore, they should have their pieces remaining populated with the hashes
+        # TODO as well so they can verify they are being sent real pieces (ie everything needs to read the meta info file before it joins the swarm)
+        with open(os.path.join("Peer0", "story-hashes.txt"), "rb") as file:
+            index = 0
+            # Only store the hashes for pieces we do not have.
+            while piece_hash := file.read(32):
+                if (0, index) not in pieces:
+                    pieces_remaining[(0, index)] = piece_hash
+                index += 1
+            total_pieces = index
 
     # Receive swarm peers from tracker.
     try:
