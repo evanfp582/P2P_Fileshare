@@ -112,4 +112,4 @@ if __name__ == "__main__":
     # with open(hash_file, "wb") as file:
     #     for piece in hashes:
     #         file.write(piece.digest())
-    reassemble_file(byte_array, "Peer1", "short_story.txt")
+    #reassemble_file(byte_array, "Peer1", "short_story.txt")

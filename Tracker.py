@@ -16,10 +16,10 @@ peer_id = 1
 lock = threading.Lock()
 
 
-def handle_peer(peer_sock: int, peer_addr: str):
+def handle_peer(peer_sock, peer_addr):
     """Handle the connection with a specified peer
     Args:
-        peer_sock (int): The socket for a peer
+        peer_sock (socket.socket): The socket for a peer
         peer_addr (str): The address for a peer
     """
     global swarm
