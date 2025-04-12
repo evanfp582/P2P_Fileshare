@@ -31,10 +31,8 @@ def handle_peer(peer_sock, peer_addr):
         packet = peer_sock.recv(35)
         code_hash = hashlib.sha256(packet[:3])
         # Compare the hash generated from the code to the one we received
-        # TODO 32 byte has for a 3 byte value seems a bit overkill, maybe use smaller digest hash function(we dont really need to worry about collisions b/c small input)
-        # TODO we also need to figure out how we represent the info hash of the file and the pieces, right now just using hash for message integrity like is done for HTTP
         if code_hash.digest() != packet[3:]:
-            peer_sock.send(b"\0") # Message corrupted
+            peer_sock.send(b"\0")  # Message corrupted
             return
         msg_code, msg_id = struct.unpack('>BH', packet[:3])
         # code 0 means that it is a new client, so here id = port range
@@ -52,7 +50,7 @@ def handle_peer(peer_sock, peer_addr):
             length_hash = hashlib.sha256(send_packet)
             peer_sock.send(send_packet + length_hash.digest())
             while True:
-                response_packet = peer_sock.recv(35) # Ack will be just 1 byte
+                response_packet = peer_sock.recv(35)  # Ack will be just 1 byte
                 if len(response_packet) > 1:
                     peer_sock.send(send_packet + length_hash.digest())
                 else:
@@ -61,7 +59,10 @@ def handle_peer(peer_sock, peer_addr):
             swarm_packet = b''
             # Add each peer in the swarm as 2 byte id + 2 byte port + 4 byte IP
             for peer in current_swarm.keys():
-                swarm_packet += struct.pack('>HHI', peer, current_swarm[peer][0], int(ipaddress.ip_address(current_swarm[peer][1])))
+                swarm_packet += struct.pack('>HHI', peer,
+                                            current_swarm[peer][0],
+                                            int(ipaddress.ip_address(
+                                                current_swarm[peer][1])))
             swarm_hash = hashlib.sha256(swarm_packet)
             peer_sock.send(swarm_packet + swarm_hash.digest())
             while True:
@@ -91,11 +92,15 @@ def handle_peer(peer_sock, peer_addr):
 
                 swarm_packet = b''
                 for peer in current_swarm:
-                    swarm_packet += struct.pack('>HHI', peer, current_swarm[peer][0], int(ipaddress.ip_address(current_swarm[peer][1])))
+                    swarm_packet += struct.pack('>HHI', peer,
+                                                current_swarm[peer][0],
+                                                int(ipaddress.ip_address(
+                                                    current_swarm[peer][1])))
                 swarm_hash = hashlib.sha256(swarm_packet)
                 peer_sock.send(swarm_packet + swarm_hash.digest())
                 while True:
-                    response_packet = peer_sock.recv(35) # Ack will be just 1 byte
+                    response_packet = peer_sock.recv(
+                        35)  # Ack will be just 1 byte
                     if len(response_packet) > 1:
                         peer_sock.send(swarm_packet + swarm_hash.digest())
                     else:
