@@ -27,7 +27,7 @@ swarm = {}
 local_id = 0
 
 # Flag indicating if the user has downloaded their target file yet
-download_finished = False
+download_finished = False  # TODO a little weird that we use a mix of threading events and global flags
 
 # List of current peers
 current_peers = []
@@ -44,8 +44,9 @@ pieces = {}
 # Lock for managing local swarm list and file info
 lock = threading.Lock()
 
-def handshake(sock: socket.socket, target_id=0, initiate=True):
-    """Handshake on a socket that closes on failure
+
+def handshake(sock, target_id=0, initiate=True):
+    """Handshake on a socket to confirm we are connected to a valid peer.
     Args:
         sock (socket.socket): Socket to connect to
         target_id (int, optional): ID of target socket. 
@@ -56,33 +57,40 @@ def handshake(sock: socket.socket, target_id=0, initiate=True):
         bool: True on success, False on fail
     """
     global local_id
-    handshake_packet = struct.pack('>I', 12)
-    sync_hash = hashlib.sha256("This is the synchronization message.".encode())
-    sock.send(handshake_packet + "HW4 Protocol".encode() + sync_hash.digest())
+    try:
+        handshake_packet = struct.pack('>I', 12)
+        sync_hash = hashlib.sha256(
+            "This is the synchronization message.".encode())
+        sock.send(
+            handshake_packet + "HW4 Protocol".encode() + sync_hash.digest())
 
-    length_header = sock.recv(4)
-    length, = struct.unpack('>I', length_header)
-    if length != 12:
-        return False
-    protocol_header = sock.recv(length)
-    if protocol_header.decode() != "HW4 Protocol":
-        return False
-    received_hash = sock.recv(32)
-    if received_hash != sync_hash.digest():
-        return False
-    if initiate:
-        # we expect the peer will respond with the correct ID value.
-        received_id = sock.recv(4)
-        peer_id, = struct.unpack('>I', received_id)
-        if peer_id != target_id:
+        length_header = sock.recv(4)
+        length, = struct.unpack('>I', length_header)
+        if length != 12:
             return False
-    else:
-        # send back our ID to prove to the peer that we are the one it expects to connect to.
-        id_packet = struct.pack('>I', local_id)
-        sock.send(id_packet)
+        protocol_header = sock.recv(length)
+        if protocol_header.decode() != "HW4 Protocol":
+            return False
+        received_hash = sock.recv(32)
+        if received_hash != sync_hash.digest():
+            return False
+        if initiate:
+            # we expect the peer will respond with the correct ID value.
+            received_id = sock.recv(4)
+            peer_id, = struct.unpack('>I', received_id)
+            if peer_id != target_id:
+                return False
+        else:
+            # send back our ID to prove to the peer that we are the one it expects to connect to.
+            id_packet = struct.pack('>I', local_id)
+            sock.send(id_packet)
 
-    time.sleep(1)  # Sleep to give other side chance to process.
-    return True
+        time.sleep(1)  # Sleep to give other side chance to process.
+        return True
+    except ConnectionResetError:
+        print("Connection reset by peer")
+        # TODO do we need to call sock.close() here?
+        return False
 
 
 def update_swarm(s_ip: str, s_port:int):
@@ -131,12 +139,16 @@ def update_swarm(s_ip: str, s_port:int):
                 swarm[peer_id] = peer_port, str(ipaddress.ip_address(peer_ip))
             lock.release()
 
-            sock.close()
+            sock.close()  # TODO still somewhat inefficient that we open and close a TCP every time
             time.sleep(3)  # For now, update every 3 seconds
         except ConnectionResetError:
             print("Connection reset by tracker")
+            shutdown_event.set()
+            break
         except ConnectionRefusedError:
             print("Tracker unavailable for connection")
+            shutdown_event.set()
+            break
 
 
 # TODO manage handle_responses and hand_requests and make it work for downloader and seeder
@@ -250,8 +262,12 @@ def create_downloader(peer_ip: str, peer_port: int):
         socket: Socket that is a connection to peer port
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-    sock.connect((peer_ip, peer_port))
-    return sock
+    # TODO if we ever start getting errors about 2 things not being able to bind on the same port + protocol, comment this out or qualify with an IP check
+    if peer_ip != '127.0.0.1' and peer_ip != local_ip:
+        sock.bind(('localhost', local_port))
+    ssock = context.wrap_socket(sock, server_hostname=hostname)
+    ssock.connect((peer_ip, peer_port))
+    return ssock
 
 
 def create_seeder(port):
@@ -291,40 +307,45 @@ def seeder(local_port):
         connected = handshake(peer_sock, initiate=False)
         if not connected:
             continue
-        # track what file the pieces are on 
-        indexes_on_peer = []
-        packet = peer_sock.recv(4)
-        length, = struct.unpack(">I", packet[:4])
-        packet = packet + peer_sock.recv(length)
-        parsed_packet = Packet.parse_packet(packet)
-        payload = parsed_packet["payload"]
-        file_id = payload["file_id"]
-        # Read in all the pieces the other peer has.
-        for i in range(len(payload["bitfield"])):
-            if payload["bitfield"][i] == '1':
-                indexes_on_peer.append(i)
+        try:
+            # track what file the pieces are on
+            indexes_on_peer = []
+            packet = peer_sock.recv(4)
+            length, = struct.unpack(">I", packet[:4])
+            packet = packet + peer_sock.recv(length)
+            parsed_packet = Packet.parse_packet(packet)
+            payload = parsed_packet["payload"]
+            file_id = payload["file_id"]
+            # Read in all the pieces the other peer has.
+            for i in range(len(payload["bitfield"])):
+                if payload["bitfield"][i] == '1':
+                    indexes_on_peer.append(i)
 
-        # The downloader will only broadcast the file type it has/needs, so
-        # take the set of pieces we have for that file.
-        relevant_pieces = {}
-        for p in pieces.keys():
-            if p[0] == file_id:
-                relevant_pieces[p] = pieces[p]
+            # The downloader will only broadcast the file type it has/needs, so
+            # take the set of pieces we have for that file.
+            relevant_pieces = {}
+            for p in pieces.keys():
+                if p[0] == file_id:
+                    relevant_pieces[p] = pieces[p]
 
-        file_len = len(payload["bitfield"])
-        seeder_bitfield = Utility.create_bitfield(relevant_pieces, file_len)
-        bitfield_packet = Packet.create_packet(5,
-                                               file_id, seeder_bitfield)
-        peer_sock.send(bitfield_packet)
-        # Now normal communication occurs
+            file_len = len(payload["bitfield"])
+            seeder_bitfield = Utility.create_bitfield(relevant_pieces,
+                                                      file_len)
+            bitfield_packet = Packet.create_packet(5,
+                                                   file_id, seeder_bitfield)
+            peer_sock.send(bitfield_packet)
+            # Now normal communication occurs
 
-        # Update the list of indexes on peer to only include items we need.
-        set1 = set(indexes_on_peer)
-        lock.acquire()
-        set2 = set(p[1] for p in pieces.keys() if p[0] == file_id)
-        lock.release()
-        indexes_on_peer = list(set1 - set2)
-        handle_responses(peer_sock, file_id, indexes_on_peer, is_seeder=True)
+            # Update the list of indexes on peer to only include items we need.
+            set1 = set(indexes_on_peer)
+            lock.acquire()
+            set2 = set(p[1] for p in pieces.keys() if p[0] == file_id)
+            lock.release()
+            indexes_on_peer = list(set1 - set2)
+            handle_responses(peer_sock, file_id, indexes_on_peer,
+                             is_seeder=True)
+        except ConnectionResetError:
+            print("Connection reset by peer.")
         peer_sock.close()
     print("[Seeder] Shutting down.")
 
@@ -333,8 +354,7 @@ def seeder(local_port):
 def downloader(local_port, output_file):
     """Downloader peer thread
     Args:
-        local_port (int): port number
-        output_file (string): File to send results of download
+        local_port (int): port number corresponding to this channel.
     """
     global download_finished
     global lock
@@ -345,7 +365,7 @@ def downloader(local_port, output_file):
     global total_pieces
     global copied_file
 
-    while not download_finished or not shutdown_event.is_set():
+    while not download_finished and not shutdown_event.is_set():
         # Make sure all the lists are synced        
         if len(pieces_remaining) == 0 and len(pieces) == total_pieces:
             download_finished = True
@@ -357,7 +377,7 @@ def downloader(local_port, output_file):
             continue
         else:  
             test_peer = 0
-            while not download_finished or not shutdown_event.is_set():
+            while not download_finished and not shutdown_event.is_set():
                 # Randomize list of peers, and choose the first one.
                 swarm_peers = list(swarm.keys())
                 random.shuffle(swarm_peers)
@@ -365,7 +385,7 @@ def downloader(local_port, output_file):
                 if test_peer != local_id and test_peer not in current_peers:
                     # Claim the peer so no one else tries
                     lock.acquire()
-                    if test_peer in current_peers:
+                    if test_peer in current_peers: # TODO maybe we can combine this and the above check
                         lock.release()
                         continue
                     # Claim the peer by putting in the shared list.
@@ -379,7 +399,7 @@ def downloader(local_port, output_file):
                             sock = create_downloader(peer_ip,
                                                      peer_port + port_offset)
                             break
-                        except ConnectionRefusedError:  # TODO make sure this is actually the error that shows up when a TCP seeder is already communicating with someone else
+                        except ConnectionRefusedError:
                             port_offset += 1
                             continue
                     if port_offset == 4:
@@ -390,7 +410,7 @@ def downloader(local_port, output_file):
 
                     connected = handshake(sock, test_peer)
                     if not connected:
-                        sock.close()
+                        sock.close()  # TODO make sure there is no error for closing a socket that encountered an error.
                         lock.acquire()
                         current_peers.remove(test_peer)
                         lock.release()
@@ -399,6 +419,8 @@ def downloader(local_port, output_file):
                         break
                 else:
                     continue
+            if download_finished or shutdown_event.is_set():
+                break
             print("started download")
             # Successful handshake with peer
             indexes_on_peer = []
@@ -410,43 +432,47 @@ def downloader(local_port, output_file):
             bitfield_packet = Packet.create_packet(5,
                                                    file_id,
                                                    current_bitfield)
-            sock.send(bitfield_packet)
-            packet = sock.recv(4)
-            length, = struct.unpack(">I", packet[:4])
-            packet = packet + sock.recv(length)
+            try:
+                sock.send(bitfield_packet)
+                packet = sock.recv(4)
+                length, = struct.unpack(">I", packet[:4])
+                packet = packet + sock.recv(length)
 
-            parsed_packet = Packet.parse_packet(packet)
-            payload = parsed_packet["payload"]
-            # Read in all the pieces the other peer has.
-            for i in range(total_pieces):
-                if payload["bitfield"][i] == '1':
-                    indexes_on_peer.append(i)
-            # Find what pieces downloader needs from peer
-            lock.acquire()
-            set2 = set(p[1] for p in pieces.keys())
-            lock.release()
-            set1 = set(indexes_on_peer)
-            indexes_on_peer = list(set1 - set2)
-            # If there is nothing on the peer that we want, disconnect.
-            if len(indexes_on_peer) == 0:
-                sock.send(Packet.create_packet(3))
+                parsed_packet = Packet.parse_packet(packet)
+                payload = parsed_packet["payload"]
+                # Read in all the pieces the other peer has.
+                for i in range(total_pieces):
+                    if payload["bitfield"][i] == '1':
+                        indexes_on_peer.append(i)
+                # Find what pieces downloader needs from peer
+                set1 = set(indexes_on_peer)
                 lock.acquire()
-                current_peers.remove(test_peer)
+                set2 = set(p[1] for p in pieces.keys())
                 lock.release()
-                sock.close()
-                continue
-            # Initial request
-            sock.send(Packet.create_packet(6, indexes_on_peer[0], file_id))
-            handle_responses(sock, file_id, indexes_on_peer)
-            # Send not interested when done
-            sock.send(Packet.create_packet(3))
-            time.sleep(
-                2)  # TODO we can lower this when we have proper error handling (ie the other side will not fail if we sever the connection)
+                indexes_on_peer = list(set1 - set2)
+                # If there is nothing on the peer that we want, disconnect.
+                if len(indexes_on_peer) == 0:
+                    sock.send(Packet.create_packet(3))
+                    lock.acquire()
+                    current_peers.remove(test_peer)
+                    lock.release()
+                    sock.close()
+                    continue
+                # Initial request
+                sock.send(Packet.create_packet(6, indexes_on_peer[0], file_id))
+                handle_responses(sock, file_id, indexes_on_peer)
+                # Send not interested when done
+                sock.send(Packet.create_packet(3))
+                time.sleep(1)
+            except ConnectionResetError:
+                print("Connection reset by peer")
             lock.acquire()
             current_peers.remove(test_peer)
             lock.release()
             sock.close()
-
+    # Don't try to download a file if we are stopping via a CLI exit.
+    if shutdown_event.is_set():
+        return
     lock.acquire()
     if not copied_file:
         copied_file = True
