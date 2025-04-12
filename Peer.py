@@ -4,6 +4,7 @@ import ipaddress
 import os
 import random
 import socket
+import ssl
 import struct
 import threading
 import hashlib
@@ -151,8 +152,7 @@ def update_swarm(s_ip: str, s_port:int):
             break
 
 
-# TODO manage handle_responses and hand_requests and make it work for downloader and seeder
-def handle_responses(sock: socket.socket, file_identifier, indexes_on_peer, is_seeder=False):
+def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
     """Handle responses for seeder and downloader
     Args:
         sock (socket.socket): Socket of peer that is talking to this peer
@@ -178,7 +178,9 @@ def handle_responses(sock: socket.socket, file_identifier, indexes_on_peer, is_s
             piece_hash = hashlib.sha256(payload["piece"])
             
             lock.acquire()
-            if (0, payload["packet_index"]) in pieces_remaining and (piece_hash.digest() != pieces_remaining[(0, payload["packet_index"])]):
+            if (0, payload["packet_index"]) in pieces_remaining and (
+                piece_hash.digest() != pieces_remaining[
+                (0, payload["packet_index"])]):
                 continue
             if payload["packet_index"] in indexes_on_peer:
                 indexes_on_peer.remove(payload["packet_index"])
@@ -251,16 +253,21 @@ def handle_responses(sock: socket.socket, file_identifier, indexes_on_peer, is_s
         lock.release()
         indexes_on_peer = list(set1 - set2)
 
-# TODO fix this when I get around to generating certificates and key files
-def create_downloader(peer_ip: str, peer_port: int):
+def create_downloader(local_port, peer_ip, peer_port):
     """Create a connection to target peer port
     Args:
+        local_port (int): Local port that this downloader channel occupies.
         peer_ip (str): Peer IP
         peer_port (int): Peer Port
 
     Returns:
-        socket: Socket that is a connection to peer port
+        socket.socket: Socket that is a connection to peer port
     """
+    global local_ip
+    hostname = "P2Pproject"
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.load_verify_locations('cert.pem')
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
     # TODO if we ever start getting errors about 2 things not being able to bind on the same port + protocol, comment this out or qualify with an IP check
     if peer_ip != '127.0.0.1' and peer_ip != local_ip:
@@ -273,24 +280,27 @@ def create_downloader(peer_ip: str, peer_port: int):
 def create_seeder(port):
     """Creates a server side listener on given port
     Args:
-        port (int): Peer port number
+        port (int): Local port that this seeder channel occupies.
     Returns:
-        socket: _description_
+        socket.socket: _description_
     """
     global shutdown_event
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
-        sock.bind(('localhost', port))
-        sock.settimeout(1)
-        sock.listen()
-        # TODO make sure this does not cause any issues when a peer tries to connect
-        while True:
-            try:
-                conn, _ = sock.accept()
-                return conn
-            except socket.timeout:
-                if shutdown_event.is_set():
-                    sock.close()
-                    return None
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain('cert.pem', 'key.pem')
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+    sock.bind(('localhost', port))
+    sock.settimeout(1)
+    sock.listen()
+    ssock = context.wrap_socket(sock, server_side=True)
+    # TODO make sure this does not cause any issues when a peer tries to connect
+    while True:
+        try:
+            conn, _ = ssock.accept()
+            return conn
+        except socket.timeout:
+            if shutdown_event.is_set():
+                ssock.close()
+                return None
 
 
 def seeder(local_port):
@@ -375,7 +385,7 @@ def downloader(local_port, output_file):
             print("Waiting to see if we need to handle downloads")
             time.sleep(.5)
             continue
-        else:  
+        else:
             test_peer = 0
             while not download_finished and not shutdown_event.is_set():
                 # Randomize list of peers, and choose the first one.
@@ -396,7 +406,8 @@ def downloader(local_port, output_file):
                     port_offset = 0
                     while port_offset < 4:
                         try:
-                            sock = create_downloader(peer_ip,
+                            sock = create_downloader(local_port,
+                                                     peer_ip,
                                                      peer_port + port_offset)
                             break
                         except ConnectionRefusedError:
