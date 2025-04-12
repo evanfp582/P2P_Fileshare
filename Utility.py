@@ -1,7 +1,7 @@
 import hashlib
 import os
 
-PIECE_BYTE_LENGTH = 128  # TODO we need to decide. Chose 128 because the docs say commonly powers of 2
+PIECE_BYTE_LENGTH = 128 
 
 
 def split_file(folder, filename):
@@ -98,18 +98,31 @@ def bytes_to_binary(byte_data):
     """
     return ''.join(f'{byte:08b}' for byte in byte_data)
 
+def create_hash_file(filename):
+    """Create a hash file for the given input/filename file  
+    Args:
+        filename (str): filename with extension
+    """
+    byte_array = split_file("input", filename)
+    hashes = piece_hash(byte_array)
+    hash_file = os.path.join("hashes", f"{os.path.splitext(filename)[0]}-hashes.txt")
+    with open(hash_file, "wb") as file:
+        for piece in hashes:
+            file.write(piece.digest())
+    
 
 if __name__ == "__main__":
     """Just in here for testing purposes, not the cleanest, but can be deleted before we submit"""
     print(create_bitfield({(0,5): "test", (0, 1): "test2", (0, 4): "test3"}, 10))
-    byte_array = split_file("Peer0", "short_story.txt")
-    print(len(byte_array))
+    byte_array = split_file("input", "short_story.txt")
     print(byte_array)
-    # Writing the hashes onto a local file, not sure if we care about making it
-    # a readable format since it is just bytes
+    # print(len(byte_array))
+    # print(byte_array)
+    # # Writing the hashes onto a local file, not sure if we care about making it
+    # # a readable format since it is just bytes
     hashes = piece_hash(byte_array)
-    # hash_file = os.path.join("Peer0", "story-hashes.txt")
-    # with open(hash_file, "wb") as file:
-    #     for piece in hashes:
-    #         file.write(piece.digest())
-    #reassemble_file(byte_array, "Peer1", "short_story.txt")
+    hash_file = os.path.join("hashes", "short_story-hashes.txt")
+    with open(hash_file, "wb") as file:
+        for piece in hashes:
+            file.write(piece.digest())
+    # reassemble_file(byte_array, "Peer1", "short_story.txt")
