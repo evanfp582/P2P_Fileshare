@@ -116,6 +116,8 @@ def handle_peer(peer_sock, peer_addr):
 
     except ConnectionResetError:
         print("Connection reset by a client")
+    except struct.error:
+        print("Communication was severed early by peer.")
     peer_sock.close()
 
 
