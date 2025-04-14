@@ -6,13 +6,18 @@ import struct
 import threading
 import hashlib
 
-# Dict holding the information about the swarm
+# TODO literally the one issue here is that if a client crashes, we lose communication with them and cannot remove them from the swarm list
+# TODO however, this is not really a problem since we would just fail to connect to them.
+
+# TODO do we need to add protections against duplicate ports?
+
+# Dict holding the information about the swarm.
 swarm = {}
 
-# Peer id counter used to generate unique peers
+# Peer id counter used to generate unique peers.
 peer_id = 1
 
-# Lock for managing access to swarm
+# Lock for managing access to swarm.
 lock = threading.Lock()
 
 
@@ -27,15 +32,15 @@ def handle_peer(peer_sock, peer_addr):
     global lock
 
     try:
-        # Standard request format is 1 byte code, 2 byte id, 32 byte hash
+        # Standard request format is 1 byte code, 2 byte id, 32 byte hash.
         packet = peer_sock.recv(35)
         code_hash = hashlib.sha256(packet[:3])
-        # Compare the hash generated from the code to the one we received
+        # Compare the hash generated from the code to the one we received.
         if code_hash.digest() != packet[3:]:
             peer_sock.send(b"\0")  # Message corrupted
             return
         msg_code, msg_id = struct.unpack('>BH', packet[:3])
-        # code 0 means that it is a new client, so here id = port range
+        # code 0 means that it is a new client, so here id = port range.
         if msg_code == 0:
             lock.acquire()
             current_id = peer_id
@@ -44,9 +49,9 @@ def handle_peer(peer_sock, peer_addr):
             # Just to avoid holding lock too long, copy current swarm.
             current_swarm = swarm.copy()
             lock.release()
-            # Start of response packet is the assigned ID of the peer
+            # Start of response packet is the assigned ID of the peer.
             send_packet = struct.pack('>HH', current_id, len(current_swarm))
-            # Use a hash to confirm length and id were sent correctly
+            # Use a hash to confirm length and id were sent correctly.
             length_hash = hashlib.sha256(send_packet)
             peer_sock.send(send_packet + length_hash.digest())
             while True:
@@ -57,7 +62,7 @@ def handle_peer(peer_sock, peer_addr):
                     break
 
             swarm_packet = b''
-            # Add each peer in the swarm as 2 byte id + 2 byte port + 4 byte IP
+            # Add each peer as 2 byte id + 2 byte port + 4 byte IP.
             for peer in current_swarm.keys():
                 swarm_packet += struct.pack('>HHI', peer,
                                             current_swarm[peer][0],
@@ -66,7 +71,7 @@ def handle_peer(peer_sock, peer_addr):
             swarm_hash = hashlib.sha256(swarm_packet)
             peer_sock.send(swarm_packet + swarm_hash.digest())
             while True:
-                # Check that messaged arrived uncorrupted
+                # Check that messaged arrived uncorrupted.
                 response_packet = peer_sock.recv(35)
                 if len(response_packet) > 1:
                     peer_sock.send(swarm_packet + swarm_hash.digest())
@@ -79,7 +84,7 @@ def handle_peer(peer_sock, peer_addr):
                 current_swarm = swarm.copy()
                 lock.release()
 
-                # Send and confirm length
+                # Send and confirm length.
                 send_packet = struct.pack('>H', len(current_swarm))
                 length_hash = hashlib.sha256(send_packet)
                 peer_sock.send(send_packet + length_hash.digest())
@@ -99,14 +104,13 @@ def handle_peer(peer_sock, peer_addr):
                 swarm_hash = hashlib.sha256(swarm_packet)
                 peer_sock.send(swarm_packet + swarm_hash.digest())
                 while True:
-                    response_packet = peer_sock.recv(
-                        35)  # Ack will be just 1 byte
-                    if len(response_packet) > 1:
+                    response_packet = peer_sock.recv(35)
+                    if len(response_packet) > 1:  # ACK is one byte
                         peer_sock.send(swarm_packet + swarm_hash.digest())
                     else:
                         break
 
-            else:  # Otherwise, remove it from the swarm and confirm with the client
+            else:  # Otherwise, remove it from the swarm and ack
                 lock.acquire()
                 swarm.pop(msg_id)  # Remove client from swarm
                 send_packet = struct.pack('>H', msg_id)
