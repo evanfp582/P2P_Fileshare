@@ -1,3 +1,4 @@
+"""File containing various utility functions used throughout the code"""
 import hashlib
 import os
 

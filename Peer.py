@@ -290,7 +290,6 @@ def create_downloader(local_port, peer_ip, peer_port):
         local_port (int): Local port that this downloader channel occupies.
         peer_ip (str): Peer IP
         peer_port (int): Peer Port
-
     Returns:
         socket.socket: Socket that is a connection to peer port
     """
