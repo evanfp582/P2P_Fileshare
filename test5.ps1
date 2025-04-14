@@ -23,3 +23,11 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", "python .\Peer.py 
 Start-Sleep -Seconds 10
 
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "python .\Peer.py -i localhost -p 6000 -f 3lorem_ipsum.txt"
+
+Start-Sleep -Seconds 1
+
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "python .\Peer.py -i localhost -p 6005 -f 3lorem_ipsum.txt"
+
+Start-Sleep -Seconds 1
+
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "python .\Peer.py -i localhost -p 6010 -f 3lorem_ipsum.txt"

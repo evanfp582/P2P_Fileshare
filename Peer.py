@@ -192,11 +192,7 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
             piece_hash = hashlib.sha256(payload["piece"])
 
             lock.acquire()
-            if (
-                    file_identifier,
-                    payload["packet_index"]) in pieces_remaining and (
-                    piece_hash.digest() != pieces_remaining[
-                (file_identifier, payload["packet_index"])]):
+            if (file_identifier, payload["packet_index"]) in pieces_remaining and (piece_hash.digest() != pieces_remaining[(file_identifier, payload["packet_index"])]):
                 continue
             if payload["packet_index"] in indexes_on_peer:
                 indexes_on_peer.remove(payload["packet_index"])
@@ -247,7 +243,7 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
             break
 
         # Check if we should exit communication
-        if shutdown_event.is_set() or download_finished:
+        if shutdown_event.is_set() or (not is_seeder and download_finished):
             sock.send(Packet.create_packet(3))
             time.sleep(1)
             break
@@ -419,6 +415,7 @@ def downloader(local_port, output_file, file_indicator):
             break
 
         if len(pieces_remaining) == 0:
+            #TODO not sure this case ever happens since pieces and pieces remaining are updated at the same time
             print("Waiting to see if we need to handle downloads")
             time.sleep(.5)
             continue
@@ -468,6 +465,8 @@ def downloader(local_port, output_file, file_indicator):
                         break
                 else:
                     continue
+            if sock is None:
+                break
             print("started download")
             # Successful handshake with peer
             indexes_on_peer = []
@@ -663,6 +662,7 @@ def main():
         # Check if {p2p_file}-hashes.txt exists in hashes folder. If not, create it
         # Since the downloader started after seeders, this should never happen,
         # but just in case.
+        # TODO this is the only reason a downloader would need the original file to exist
         base_name = os.path.splitext(p2p_file)[0]  # strips extension
         hash_path = os.path.join("hashes", f"{base_name}-hashes.txt")
         if not os.path.isfile(hash_path):
