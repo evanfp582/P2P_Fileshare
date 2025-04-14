@@ -1,6 +1,7 @@
 ﻿"""File to create and run a Peer in the P2P file share network"""
 import argparse
 import ipaddress
+import math
 import os
 import random
 import socket
@@ -605,58 +606,74 @@ def main():
     first_port, tracker_ip, tracker_port, seeder_bool = args.p, args.i, args.d, args.S
     missing_pieces, p2p_file = args.m, args.f
 
-    if p2p_file[0].isdigit() and int(p2p_file[0]) < 4:
-        file_indicator = int(p2p_file[0])
-    else:
-        print("Please provide a supported file")
-        return
-
-    # Check if {p2p_file}-hashes.txt exists in hashes folder. If not, create it
-    base_name = os.path.splitext(p2p_file)[0]  # strips extension
-    hash_path = os.path.join("hashes", f"{base_name}-hashes.txt")
-    if not os.path.isfile(hash_path):
-        Utility.create_hash_file(p2p_file)
-
-    with open(hash_path, "rb") as file:
-        index = 0
-        while piece_hash := file.read(32):
-            pieces_remaining[(file_indicator, index)] = piece_hash
-            index += 1
-        total_pieces = index
-
     if seeder_bool:
-        file_path = os.path.join("input", p2p_file)
-        if not os.path.isfile(file_path):
-            print(
-                f"Error: File '{args.file}' does not exist so seeder can't use.")
-            return
-        file_split = Utility.split_file("input", p2p_file)
-        full_file_dict = dict(enumerate(file_split))
-        if missing_pieces is not None:
-            file_dict = {key: full_file_dict[key] for key in full_file_dict if
-                         key not in missing_pieces}
-        elif args.r1 is not None or args.r2 is not None:
-            lower = 0.0 if args.r1 is None else args.r1
-            upper = 1.0 if args.r2 is None else args.r2
+        for filename in os.listdir("input"):
+            if filename[0].isdigit() and int(filename[0]) < 4:
+                file_indicator = int(filename[0])
+            else:
+                print("Please provide only well formatted files in input.")
+                return
+            base_name = os.path.splitext(filename)[0]  # strips extension
+            hash_path = os.path.join("hashes", f"{base_name}-hashes.txt")
+            # Create relevant hashes if they are missing.
+            if not os.path.isfile(hash_path):
+                Utility.create_hash_file(filename)
 
-            sampled_keys = list(range(int(len(full_file_dict) * lower),
-                                      int(len(full_file_dict) * upper)))
-            file_dict = {key: full_file_dict[key] for key in sampled_keys}
+            file_split = Utility.split_file("input", filename)
+            full_file_dict = dict(enumerate(file_split))
+            if missing_pieces is not None:
+                file_dict = {key: full_file_dict[key] for key in full_file_dict if
+                            key not in missing_pieces}
+
+            elif args.r1 is not None or args.r2 is not None:
+                lower = 0.0 if args.r1 is None else args.r1
+                upper = 1.0 if args.r2 is None else args.r2
+
+                # Because of rounding, some seeders have 1 or 2 more pieces.
+                sampled_keys = list(range(math.floor(len(full_file_dict) * lower), math.ceil(len(full_file_dict) * upper)))
+                file_dict = {key: full_file_dict[key] for key in sampled_keys}
+            else:
+                # Get a random 95% of the pieces
+                sampled_keys = random.sample(list(full_file_dict.keys()), math.ceil(len(full_file_dict) * 0.95))
+
+                file_dict = {key: full_file_dict[key] for key in sampled_keys}
+
+            print("Missing Values: ", Utility.find_missing_values(list(file_dict.keys())))
+
+            # Just for some variability, load pieces in random order.
+            load_keys = list(file_dict.keys())
+            random.shuffle(load_keys)
+            for key in load_keys:
+                pieces[(file_indicator, key)] = file_dict[key]
+
+            with open(hash_path, "rb") as file:
+                index = 0
+                while piece_hash := file.read(32):
+                    if (file_indicator, index) not in pieces:
+                        pieces_remaining[(file_indicator, index)] = piece_hash
+                    index += 1
+                total_pieces += index
+    else:
+        if p2p_file[0].isdigit() and int(p2p_file[0]) < 4:
+            file_indicator = int(p2p_file[0])
         else:
-            # Get a random 95% of the pieces
-            sampled_keys = random.sample(list(full_file_dict.keys()),
-                                         int(len(full_file_dict) * 0.95))
+            print("Please provide a supported file to download")
+            return
 
-            # TODO this is the testing scheme I used to ensure that all of the files would be perfectly evenly distributed among 5 peers
-            # sampled_keys = list(range(int(len(full_file_dict) * 0.8), int(len(full_file_dict) * 1.0)))
-            file_dict = {key: full_file_dict[key] for key in sampled_keys}
+        # Check if {p2p_file}-hashes.txt exists in hashes folder. If not, create it
+        # Since the downloader started after seeders, this should never happen,
+        # but just in case.
+        base_name = os.path.splitext(p2p_file)[0]  # strips extension
+        hash_path = os.path.join("hashes", f"{base_name}-hashes.txt")
+        if not os.path.isfile(hash_path):
+            Utility.create_hash_file(p2p_file)
 
-        print("Missing Values: ",
-              Utility.find_missing_values(list(file_dict.keys())))
-
-        while len(pieces) < len(file_dict):
-            load_piece = random.choice(list(file_dict.keys()))
-            pieces[(file_indicator, load_piece)] = file_dict[load_piece]
+        with open(hash_path, "rb") as file:
+            index = 0
+            while piece_hash := file.read(32):
+                pieces_remaining[(file_indicator, index)] = piece_hash
+                index += 1
+            total_pieces = index
 
     # Receive swarm peers from tracker.
     try:
@@ -734,8 +751,6 @@ def main():
                 threading.Thread(target=seeder, args=(first_port + i,)))
             threads[i].start()
 
-    # TODO minor problem here for the downloader is that if the exit event is set by finishing a download, we will never exit since we wait for input
-    # TODO may have solved this by forcing the user to exit manually anyway
     cli(shutdown_event, seeder_bool)
 
     for thread in threads:
