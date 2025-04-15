@@ -12,6 +12,3 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", "python .\Peer.py 
 Start-Sleep -Seconds 1
 
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "python .\Peer.py -i localhost -p 6005 -f 1short_story_10x.txt"
-
-Start-Sleep -Seconds 3
-

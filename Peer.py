@@ -93,8 +93,14 @@ def handshake(sock, target_id=0, initiate=True):
     except ConnectionResetError:
         print("Connection reset by peer.")
         return False
+    except ssl.SSLError:
+        print("Communication with peer failed.")
+        return False
     except struct.error:
         print("Communication was severed early by peer.")
+        return False
+    except TimeoutError:
+        print("Peer became unresponsive.")
         return False
 
 
@@ -155,7 +161,11 @@ def update_swarm(s_ip, s_port):
             shutdown_event.set()
             break
         except struct.error:
-            print("Communication was severed early by peer.")
+            print("Communication was severed early by tracker.")
+            shutdown_event.set()
+            break
+        except TimeoutError:
+            print("Tracker became unresponsive.")
             shutdown_event.set()
             break
 
@@ -204,7 +214,6 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
 
             response_packet = Packet.create_packet(4, payload["packet_index"],
                                                    file_identifier)
-            # TODO on a single occasion during testing, I got an EOF error from ssl, no idea why - but it only every occurs when printing is on and I catch it now
             sock.send(response_packet)
 
             if not is_seeder and len(indexes_on_peer) != 0:
@@ -321,11 +330,13 @@ def seeder(local_port):
     global pieces
     global shutdown_event
     while not shutdown_event.is_set():
+        # TODO do we want this to be in a try like everything else?
         peer_sock = create_seeder(local_port)
         if peer_sock is None:
             break
         connected = handshake(peer_sock, initiate=False)
         if not connected:
+            # TODO do we need to close peer_sock here? Maybe test with doing so to see if it breaks anything
             continue
         try:
             indexes_on_peer = []
@@ -493,6 +504,8 @@ def downloader(local_port, output_file, file_indicator):
                 print("Communication with peer failed.")
             except struct.error:
                 print("Communication was severed early by peer.")
+            except TimeoutError:
+                print("Peer became unresponsive.")
             lock.acquire()
             current_peers.remove(test_peer)
             lock.release()
@@ -701,6 +714,9 @@ def main():
     except struct.error:
         print("Communication was severed early by peer.")
         return
+    except TimeoutError:
+        print("Tracker became unresponsive.")
+        return
 
     time.sleep(1)
     update_thread = threading.Thread(target=update_swarm,
@@ -751,7 +767,8 @@ def main():
         print("Server unavailable for connection.")
     except struct.error:
         print("Communication was severed early by peer.")
-        return
+    except TimeoutError:
+        print("Tracker became unresponsive.")
 
 
 if __name__ == "__main__":
