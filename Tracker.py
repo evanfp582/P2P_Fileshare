@@ -125,9 +125,15 @@ def main():
 
     args = parser.parse_args()
     source_port = args.p
-    host = 'localhost'
+
+    try:
+        host = socket.gethostname()
+        ip = socket.gethostbyname(host)
+    except socket.gaierror:
+        return "Cannot retrieve local device IP."
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind((host, source_port))
+    sock.bind((ip, source_port))
     sock.listen()
 
     while True:

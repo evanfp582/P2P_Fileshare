@@ -277,15 +277,11 @@ def create_downloader(local_port, peer_ip, peer_port):
     Returns:
         socket.socket: Socket for Downloader.
     """
-    global local_ip
     hostname = "P2Pproject"
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.load_verify_locations('cert.pem')
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-    # TODO if we ever start getting errors about 2 things not being able to bind on the same port + protocol, comment this out or qualify with an IP check
-    if peer_ip != '127.0.0.1' and peer_ip != local_ip:
-        sock.bind(('localhost', local_port))
     ssock = context.wrap_socket(sock, server_hostname=hostname)
     ssock.connect((peer_ip, peer_port))
     return ssock
@@ -299,10 +295,11 @@ def create_seeder(port):
         socket.socket: Socket for Seeder.
     """
     global shutdown_event
+    global local_ip
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain('cert.pem', 'key.pem')
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-    sock.bind(('localhost', port))
+    sock.bind((local_ip, port))
     sock.settimeout(1)
     sock.listen()
     ssock = context.wrap_socket(sock, server_side=True)
@@ -586,6 +583,9 @@ def main():
         return "Cannot retrieve local device IP."
 
     tracker_ip, seeder_bool = args.i, args.S
+    # If we are using localhost, bind to the actual address instead.
+    if tracker_ip == 'localhost' or tracker_ip == '127.0.0.1':
+        tracker_ip = local_ip
     first_port, tracker_port = args.p, args.d
     missing_pieces, p2p_file = args.m, args.f
     lower_range, upper_range =args.r1, args.r2
