@@ -25,10 +25,8 @@ copied_file = False
 # Dict holding the information about the other peers in the swarm.
 swarm = {}
 
-# Id of this peer in the swarm.
+# Id and ip of this peer in the swarm.
 local_id = 0
-
-# Also store the local IP.
 local_ip = ''
 
 # Flag indicating if the user has downloaded their target file yet.
@@ -93,7 +91,7 @@ def handshake(sock, target_id=0, initiate=True):
         time.sleep(1)  # Sleep to give other side chance to process
         return True
     except ConnectionResetError:
-        print("Connection reset by peer")
+        print("Connection reset by peer.")
         return False
     except struct.error:
         print("Communication was severed early by peer.")
@@ -101,7 +99,7 @@ def handshake(sock, target_id=0, initiate=True):
 
 
 def update_swarm(s_ip, s_port):
-    """Used for background threads that download updated versions of swarm.
+    """Used for background threads that maintains an updated versions of swarm.
     Args:
         s_ip (str): ip of tracker
         s_port (int): port of tracker
@@ -149,11 +147,11 @@ def update_swarm(s_ip, s_port):
             sock.close()
             time.sleep(3)  # For now, update every 3 seconds
         except ConnectionResetError:
-            print("Connection reset by tracker")
+            print("Connection reset by tracker.")
             shutdown_event.set()
             break
         except ConnectionRefusedError:
-            print("Tracker unavailable for connection")
+            print("Tracker unavailable for connection.")
             shutdown_event.set()
             break
         except struct.error:
@@ -165,9 +163,9 @@ def update_swarm(s_ip, s_port):
 def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
     """Handle responses for seeder and downloader
     Args:
-        sock (socket.socket): Socket of peer that is talking to this peer
+        sock (socket.socket): Socket between this peer and another
         file_identifier (int): id of the file being shared over this communication.
-        indexes_on_peer (List): List of pieces that are both on the peer and that this peer needs.
+        indexes_on_peer (list): Pieces that are needed by this peer and found on the current connected peer.
         is_seeder (bool): Flag for if this is the seeder. Defaults to False.
     """
     global lock
@@ -175,8 +173,7 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
     global pieces
     global shutdown_event
     global download_finished
-    sent = {}  # format {(packet_index, file_id): time} used for acks
-    # Set of relevant pieces we currently have, used to update peers.
+    sent = {}  # format {(packet_index, file_id): time} ack dictionary
     lock.acquire()
     prev_pieces = set(p[1] for p in pieces.keys() if p[0] == file_identifier)
     lock.release()
@@ -186,23 +183,22 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
         packet = packet + sock.recv(length)  # read rest of packet
         parsed_packet = Packet.parse_packet(packet)
         type, payload = parsed_packet["type"], parsed_packet["payload"]
-        print(f"Type: {type}, Payload: {payload}")
+        #print(f"Type: {type}, Payload: {payload}") TODO What do we want to print out while this is going?
 
         if type == Packet.PacketType.PIECE.name:
             piece_hash = hashlib.sha256(payload["piece"])
 
+            current_ack = file_identifier, payload["packet_index"]
             lock.acquire()
-            # TODO not really sure how to make this fit without being very ugly.
-            if ((file_identifier, payload["packet_index"]) in pieces_remaining
-                    and (piece_hash.digest() != pieces_remaining[(file_identifier, payload["packet_index"])])):
+            if (current_ack in pieces_remaining
+                    and 
+                (piece_hash.digest() != pieces_remaining[current_ack])):
                 continue
             if payload["packet_index"] in indexes_on_peer:
                 indexes_on_peer.remove(payload["packet_index"])
-            if (file_identifier, payload["packet_index"]) in pieces_remaining:
-                pieces_remaining.pop(
-                    (file_identifier, payload["packet_index"]))
-                pieces[(file_identifier, payload["packet_index"])] = payload[
-                    "piece"]
+            if (current_ack) in pieces_remaining:
+                pieces_remaining.pop((current_ack))
+                pieces[current_ack] = payload["piece"]
                 prev_pieces.add(payload["packet_index"])
             lock.release()
 
@@ -216,11 +212,8 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
         elif type == Packet.PacketType.HAVE.name:
             packet_index, file_id = payload["packet_index"], payload["file_id"]
             if (packet_index, file_id) in sent:
-                # Received ack.
                 sent.pop((packet_index, file_id))
-            else:
-                # Other peer is announcing they have a piece, so add it to our
-                # searched indexes, and it will be removed if not needed.
+            else: # Other peer is announcing they have a piece
                 indexes_on_peer.append(packet_index)
         elif type == Packet.PacketType.REQUEST.name:
             packet_index, file_id = payload["packet_index"], payload["file_id"]
@@ -232,11 +225,6 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
             if is_seeder and len(indexes_on_peer) != 0:
                 sock.send(
                     Packet.create_packet(6, indexes_on_peer[0], file_id))
-                # Unlike with the sender where we carefully track the indexes
-                # on peer and only remove the item on confirmation, since the
-                # seeder can only request a piece upon receiving a download
-                # request, more aggressively request pieces to get what we can
-                # while we are connected.
                 indexes_on_peer.pop(0)
 
         elif type == Packet.PacketType.NOT_INTERESTED.name:
@@ -268,29 +256,25 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
         lock.acquire()
         set2 = set(p[1] for p in pieces.keys() if p[0] == file_identifier)
         lock.release()
-        # Update indexes to request to only include things we need.
         indexes_on_peer = list(set1 - set2)
-        # Next, see if we got any new pieces.
         new_pieces = list(set2 - prev_pieces)
-        # If we got new pieces, announce them to our peers.
         if not len(new_pieces) == 0:
-            # Send a have for each new piece.
+            # Announce to peer new pieces
             for index in new_pieces:
                 response_packet = Packet.create_packet(4, index,
                                                        file_identifier)
                 sock.send(response_packet)
-        # Finally, movee the prev_pieces list to the new time step.
         prev_pieces = set2
 
 
 def create_downloader(local_port, peer_ip, peer_port):
-    """Create a connection to target peer port
+    """Create a Downloader socket for a peer
     Args:
-        local_port (int): Local port that this downloader channel occupies.
-        peer_ip (str): Peer IP
-        peer_port (int): Peer Port
+        local_port (int): Port number for Downloader.
+        peer_ip (str): Peer IP.
+        peer_port (int): Peer port.
     Returns:
-        socket.socket: Socket that is a connection to peer port
+        socket.socket: Socket for Downloader.
     """
     global local_ip
     hostname = "P2Pproject"
@@ -307,11 +291,11 @@ def create_downloader(local_port, peer_ip, peer_port):
 
 
 def create_seeder(port):
-    """Creates a server side listener on given port
+    """Creates a Seeder socket for a peer.
     Args:
-        port (int): Local port that this seeder channel occupies.
+        port (int): Port number for Seeder.
     Returns:
-        socket.socket: _description_
+        socket.socket: Socket for Seeder.
     """
     global shutdown_event
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -321,7 +305,6 @@ def create_seeder(port):
     sock.settimeout(1)
     sock.listen()
     ssock = context.wrap_socket(sock, server_side=True)
-    # TODO make sure this does not cause any issues when a peer tries to connect
     while True:
         try:
             conn, _ = ssock.accept()
@@ -333,9 +316,9 @@ def create_seeder(port):
 
 
 def seeder(local_port):
-    """Seeder peer thread
+    """Seeder peer thread.
     Args:
-        local_port (int): port
+        local_port (int): Port for Seeder.
     """
     global pieces
     global shutdown_event
@@ -358,14 +341,11 @@ def seeder(local_port):
             for i in range(len(payload["bitfield"])):
                 if payload["bitfield"][i] == '1':
                     indexes_on_peer.append(i)
-
-            # The downloader will only broadcast the file type it has/needs, so
-            # take the set of pieces we have for that file.
+                    
             relevant_pieces = {}
             for p in pieces.keys():
                 if p[0] == file_id:
                     relevant_pieces[p] = pieces[p]
-
             file_len = len(payload["bitfield"])
             seeder_bitfield = Utility.create_bitfield(relevant_pieces,
                                                       file_len)
@@ -373,7 +353,6 @@ def seeder(local_port):
                                                    file_id, seeder_bitfield)
             peer_sock.send(bitfield_packet)
 
-            # Update the list of indexes on peer to only include items we need.
             set1 = set(indexes_on_peer)
             lock.acquire()
             set2 = set(p[1] for p in pieces.keys() if p[0] == file_id)
@@ -392,11 +371,11 @@ def seeder(local_port):
 
 
 def downloader(local_port, output_file, file_indicator):
-    """Downloader peer thread
+    """Downloader peer thread.
     Args:
-        local_port (int): port number corresponding to this channel.
-        output_file (str): name of output file to write to.
-        file_indicator (int): internal id corresponding to the target file.
+        local_port (int): Port number corresponding to this channel.
+        output_file (str): Name of output file to write to.
+        file_indicator (int): Internal id corresponding to the target file.
     """
     global download_finished
     global lock
@@ -414,8 +393,7 @@ def downloader(local_port, output_file, file_indicator):
             break
 
         if len(pieces_remaining) == 0:
-            # TODO not sure this case ever happens since pieces and pieces remaining are updated at the same time
-            print("Waiting to see if we need to handle downloads")
+            print("Waiting to see if we need to handle downloads.")
             time.sleep(.5)
             continue
         else:
@@ -427,12 +405,10 @@ def downloader(local_port, output_file, file_indicator):
                 random.shuffle(swarm_peers)
                 test_peer = swarm_peers[0]
                 if test_peer != local_id and test_peer not in current_peers:
-                    # Claim the peer so no one else tries.
                     lock.acquire()
                     if test_peer in current_peers:  # TODO maybe we can combine this and the above check
                         lock.release()
                         continue
-                    # Claim the peer by putting in the shared list.
                     current_peers.append(test_peer)
                     lock.release()
                     # Try connecting on the 4 primary ports of the target.
@@ -466,11 +442,9 @@ def downloader(local_port, output_file, file_indicator):
                     continue
             if sock is None:
                 break
-            print("started download")
-            # Successful handshake with peer.
+            # print("Started download!")
             indexes_on_peer = []
-            # Note here that we just use pieces since we assume we only
-            # ever download one file type.
+
             current_bitfield = Utility.create_bitfield(pieces,
                                                        total_pieces)
             bitfield_packet = Packet.create_packet(5, file_indicator,
@@ -493,7 +467,6 @@ def downloader(local_port, output_file, file_indicator):
                 set2 = set(p[1] for p in pieces.keys())
                 lock.release()
                 indexes_on_peer = list(set1 - set2)
-                # If there is nothing on the peer that we want, disconnect.
                 if len(indexes_on_peer) == 0:
                     sock.send(Packet.create_packet(3))
                     lock.acquire()
@@ -509,14 +482,13 @@ def downloader(local_port, output_file, file_indicator):
                 sock.send(Packet.create_packet(3))
                 time.sleep(1)
             except ConnectionResetError:
-                print("Connection reset by peer")
+                print("Connection reset by peer.")
             except struct.error:
                 print("Communication was severed early by peer.")
             lock.acquire()
             current_peers.remove(test_peer)
             lock.release()
             sock.close()
-    # Don't try to download a file if we are stopping via a CLI exit.
     if shutdown_event.is_set():
         return
     lock.acquire()
@@ -524,46 +496,48 @@ def downloader(local_port, output_file, file_indicator):
         copied_file = True
         assemble_pieces = Utility.sort_by_index(pieces)
         Utility.reassemble_file(assemble_pieces, "output", output_file)
-        print(f"Successfully Downloaded {output_file} to output/{output_file}")
+        print(f"Successfully Downloaded {output_file} to output/{output_file}.")
     lock.release()
     # When we are done downloading, act as a seeder until exit.
     if not shutdown_event.is_set():
         seeder(local_port)
 
 
-def cli(shutdown_event, is_seeder: bool):
-    """Runs the command line interface for a peer
+def cli(shutdown_event, is_seeder, filename):
+    """Runs the command line interface for a peer.
     Args:
+        shutdown_event (Event): Callable event to stop peer.
         is_seeder (bool): Changes output depending on if 
-            current peer is seeder or a downloader
+            current peer is Seeder or a Downloader.
+        filename (str): file to download 
     """
-    print("Welcome to Bit Torrent")
+    print("Welcome to Bit Torrent!")
     if is_seeder:
-        print("Running Seeder Peer")
-        print("Type 'exit' to quit")
+        print("Running Seeder Peer.")
+        print("Type 'exit' to quit or 'prog' to see number of pieces Seeder has.")
     else:
-        print("Running Downloader Peer")
-        print("Type 'exit' to quit or 'prog' to see download progress")
+        print(f"Running Downloader Peer on {filename}.")
+        print("Type 'exit' to quit or 'prog' to see download progress.")
     while not shutdown_event.is_set():
         cmd = input("[CLI]: ").strip().lower()
         if cmd == 'exit':
             shutdown_event.set()
             break
-        elif cmd == 'prog' and not is_seeder:
-            if download_finished:
-                print("Download Finished")
+        elif cmd == "prog":
+            percent = round(len(pieces) / total_pieces * 100, 2)
+            if is_seeder:
+                print(f"Pieces on Seeder: {len(pieces)} "
+                      f"({percent}%).")
+            elif download_finished:
+                print("Download Finished!")
             else:
-                print("Download in Progress")
+                print("Download in Progress...")
                 print(f"{len(pieces)}/{total_pieces} "
-                      f"({len(pieces) / total_pieces * 100}%) downloaded\n")
-        elif cmd == 'prog':
-            print(f"Pieces on seeder: {len(pieces)} "
-                  f"({len(pieces) / total_pieces * 100}%) downloaded")
-    print("[CLI] Shutdown complete.")
+                      f"({percent}%) downloaded.\n")           
 
 
 def main():
-    """Main function to run file share Peer"""
+    """Main function to run file share Peer."""
     global swarm
     global local_id
     global local_ip
@@ -600,8 +574,10 @@ def main():
     except socket.gaierror:
         return "Cannot retrieve local device IP."
 
-    first_port, tracker_ip, tracker_port, seeder_bool = args.p, args.i, args.d, args.S
+    tracker_ip, seeder_bool = args.i, args.S
+    first_port, tracker_port = args.p, args.d
     missing_pieces, p2p_file = args.m, args.f
+    lower_range, upper_range =args.r1, args.r2
 
     if seeder_bool:
         for filename in os.listdir("input"):
@@ -623,11 +599,10 @@ def main():
                              if
                              key not in missing_pieces}
 
-            elif args.r1 is not None or args.r2 is not None:
-                lower = 0.0 if args.r1 is None else args.r1
-                upper = 1.0 if args.r2 is None else args.r2
+            elif lower_range is not None or upper_range is not None:
+                lower = 0.0 if lower_range is None else lower_range
+                upper = 1.0 if upper_range is None else upper_range
 
-                # Because of rounding, some seeders have 1 or 2 more pieces.
                 sampled_keys = list(
                     range(math.floor(len(full_file_dict) * lower),
                           math.ceil(len(full_file_dict) * upper)))
@@ -639,10 +614,6 @@ def main():
                                                  len(full_file_dict) * 0.95))
 
                 file_dict = {key: full_file_dict[key] for key in sampled_keys}
-
-            print("Missing Values: ",
-                  Utility.find_missing_values(list(file_dict.keys())))
-
             # Just for some variability, load pieces in random order.
             load_keys = list(file_dict.keys())
             random.shuffle(load_keys)
@@ -660,13 +631,8 @@ def main():
         if p2p_file[0].isdigit() and int(p2p_file[0]) < 4:
             file_indicator = int(p2p_file[0])
         else:
-            print("Please provide a supported file to download")
+            print("Please provide a supported file to download.")
             return
-
-        # Check if {p2p_file}-hashes.txt exists in hashes folder. If not, create it
-        # Since the downloader started after seeders, this should never happen,
-        # but just in case.
-        # TODO this is the only reason a downloader would need the original file to exist
         base_name = os.path.splitext(p2p_file)[0]  # strips extension
         hash_path = os.path.join("hashes", f"{base_name}-hashes.txt")
         if not os.path.isfile(hash_path):
@@ -687,7 +653,6 @@ def main():
         send_packet = struct.pack('>BH', 0, first_port)
         send_hash = hashlib.sha256(send_packet)
         sock.send(send_packet + send_hash.digest())
-        # Make sure we get a correct hash.
         while True:
             response_packet = sock.recv(36)
             if len(response_packet) == 1:
@@ -709,7 +674,6 @@ def main():
             else:
                 sock.send(b"\0")
                 break
-
         # Confirmed swarm is received, read it.
         for i in range(length):
             peer_id, peer_port, peer_ip = (
@@ -718,17 +682,16 @@ def main():
 
         sock.close()
     except ConnectionResetError:
-        print("Connection reset by tracker")
+        print("Connection reset by tracker.")
         return
     except ConnectionRefusedError:
-        print("Tracker unavailable for connection")
+        print("Tracker unavailable for connection.")
         return
     except struct.error:
         print("Communication was severed early by peer.")
         return
 
     time.sleep(1)
-    # Start the background tracker sync function.
     update_thread = threading.Thread(target=update_swarm,
                                      args=(tracker_ip, tracker_port))
     update_thread.start()
@@ -740,28 +703,22 @@ def main():
                 threading.Thread(target=downloader, args=(
                     first_port + i, p2p_file, file_indicator)))
             threads[i].start()
-
-        # Also make a seeder thread that can accept communication from other
-        # downloaders. Only one port is used since the number of seeders is
-        # expected to outnumber downloaders, and most downloaders will leave
-        # right after they finish downloading.
+        # Seeder thread to accept communication from downloaders
         threads.append(
             threading.Thread(target=seeder, args=(first_port + 4,)))
         threads[4].start()
-    # For a seeder only 4 ports of connection.
     else:
         for i in range(4):
             threads.append(
                 threading.Thread(target=seeder, args=(first_port + i,)))
             threads[i].start()
 
-    cli(shutdown_event, seeder_bool)
+    cli(shutdown_event, seeder_bool, p2p_file)
 
     for thread in threads:
         thread.join()
 
     try:
-        # TODO right now we open a new TCP connection each tracker message, may be inefficient but not sure if we care at the scales we are at
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((tracker_ip, tracker_port))
         send_packet = struct.pack('>BH', 1, local_id)
@@ -769,7 +726,6 @@ def main():
         sock.send(send_packet + send_hash.digest())
         while True:
             response_packet = sock.recv(4)
-            # if we get anything other than a null, it succeeded.
             if len(response_packet) == 1:
                 sock.send(send_packet + send_hash.digest())
                 continue
@@ -777,10 +733,11 @@ def main():
                 break
         print("Exited swarm.")
         sock.close()
+        print("Shutdown complete.")
     except ConnectionResetError:
-        print("Connection reset by server")
+        print("Connection reset by server.")
     except ConnectionRefusedError:
-        print("Server unavailable for connection")
+        print("Server unavailable for connection.")
     except struct.error:
         print("Communication was severed early by peer.")
         return

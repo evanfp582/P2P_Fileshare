@@ -19,52 +19,95 @@ This is the file that creates each peer of each type within the network.
 There are two types of Peers. Seeders and Downloaders.  
 Seeders some or all pieces for a specific file.  
 Downloaders have no parts of the file upon joining the swarm and their goal is to get all the pieces of the file.  
-Running a peer  
+
+**Running a peer**  
 ```cmd
-python .\Peer -i tracker ip [-S] [-p port range] [-d tracker port] [-f file] [-m [M ...]] [-r1 R1] [-r2 R2]
+python .\Peer -i Tracker ip [-S] [-p port range] [-d Tracker port] [-f file] [-m [M ...]] [-r1 R1] [-r2 R2]
 ```
 Arguments:
 -p port range: An integer signifying the first port number the peer uses. Using all ports from port range to port range + 4. Default of 9000.  
--i tracker ip: A required string indicating the IP address of the Tracker. Usually "localhost".  
--d tracker port: The port of the Tracker. Default of 9999.  
+-i Tracker ip: A required string indicating the IP address of the Tracker. Usually "localhost".  
+-d Tracker port: The port of the Tracker. Default of 9999.  
 -S: Boolean flag that if used indicated that this peer is a Seeder. Default False.  
 -f filename: Name of the file that this peer is interested in. Needed for downloader. Default of "0short_story.txt".  
 -m pieces. List of missing pieces for this Seeder. Space separated group of ints.  
--r1 range: Optional lower range of pieces this Seeder has.  
--r2 range: Optional upper range of pieces for this peer.  
+-r1 range: Optional lower range of pieces for this Seeder.  
+-r2 range: Optional upper range of pieces for this Seeder.  
 
 ## Test Cases
-The execution of programs requires many commands with very specific arguments so to actually run the test cases, we will be running powershell scripts.
+The execution of programs requires many commands with very specific arguments so to actually run the test cases, we will be running powershell scripts.  
 
-Test 1
+All the tests follow the same format.
+First, open a terminal and run the Tracker.   
+Sleep 3 seconds.  
+Open a terminal and run Seeder peers with a specified amount of pieces.  
+Sleep 1 second between Seeder Peers.  
+Sleep 10 seconds.  
+Open a terminal and run one or more Downloader peers on a specific file.   
+Sleep 1 second between Downloader peers.  
+
+**Test 1**
 ```cmd
 .\test.ps1
 ```
-This test runs a central Tracker.  
-Waits 3 seconds.  
-Then runs 3 Seeder peers that have most pieces of 1short_story_10x.txt.  
-Waits 3 seconds.  
+Basic test to distribute and download 1short_story_10x.txt.  
+Runs 3 Seeder peers that have most pieces of 1short_story_10x.txt.  
 Then runs a Downloader peer to get 1short_story_10x.txt from the previous 3 Seeder peers.  
 
-Test 2
+**Test 2**
 ```cmd
-.\test.ps2
+.\test2.ps1
 ```
-This test does similar things to test 1, but ir gets ranges of pieces from 1short_story_10x.txt rather than having specific pieces missing.  
+This test does similar things to test 1, but it gets ranges of pieces from 1short_story_10x.txt rather than having specific pieces missing.  
 Another difference is the use of 5 Seeder peers rather than 3.  
-This is a more stressful test on the Downloader's ability to get pieces from multiple peers at the same time.  
+Seeder 1 gets the 0th through 20th percent of pieces.  
+Seeder 2 gets the 20th through 40th percent of pieces.  
+Seeder 3 gets the 40th through 60th percent of pieces.  
+Seeder 4 gets the 60th through 80th percent of pieces.  
+Seeder 5 gets the 80th through 100 percent of pieces.  
 
-Test 3
+This is a more stressful test on the Downloader's ability to get pieces from more peers at the same time.  
+
+**Test 3**
 ```cmd
-.\test.ps3
+.\test3.ps1
 ```
-Test 3 once again ramps up the number of peers in the networks and the specificity of which peer has what.  
-Now there are 9 peers each with very specific lower and upper ranges of what pieces of the file they have.  
+Test 3 once again ramps up the number of peers in the networks and the specificity of what pieces each peer has.  
+Now there are 9 peers each with very specific lower and upper ranges. The ranges between peers also overlap, handling the case where the Downloader receives multiples of pieces.   
 Also the file size is increased with us testing on 2short_story_100x.txt rather than 1short_story_10x.txt.  
 
-Test 4- Test with multiple downloader peers?  
-Test 5- test where not all the peers have all the pieces needed? Do we need this case?  
-Test 6- Test with multiple files going at the same time?  
+Seeder 1 gets the 0th through 20th percent of pieces.  
+Seeder 2 gets the 10th through 30th percent of pieces.  
+Seeder 3 gets the 20th through 40th percent of pieces.  
+Seeder 4 gets the 30th through 50th percent of pieces.  
+Seeder 5 gets the 40th through 60 percent of pieces.   
+Seeder 6 gets the 50th through 70th percent of pieces.  
+Seeder 7 gets the 60th through 80th percent of pieces.  
+Seeder 8 gets the 70th through 90th percent of pieces.  
+Seeder 9 gets the 80th through 100 percent of pieces. 
+
+**Test 4**  
+```cmd
+.\test4.ps1
+```
+Test 4 is a similar test as test 3, but on a different text file, 3lorem_ipsum.txt
+
+**Test 5**  
+```cmd
+.\test5.ps1
+```
+Test 5 tests multiple Downloaders all trying to download the same file, 3lorem_ipsum.txt.  
+This test has the same Seeder set up as test 3 and 4.  
+Once the Seeders are running, the three Downloaders get ran.  
+
+**Test 6**  
+```cmd
+.\test6.ps1
+```
+Test 6 is testing multiple peers running at the same time on a swarm all requesting different files.
+This test has the same Seeder set up as test 3, 4, and 5.  
+Once the Seeders are running, 4 downloaders get ran individually requesting 2short_story_100x.txt, 3lorem_ipsum.txt, 1short_story_10x.txt, 0short_story.txt.  
+
 
 # Command Line Usage 
 We have developed a simple command line interface so users can check the progress of their download, be told when it is done, and exit if needed.  

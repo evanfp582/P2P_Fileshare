@@ -1,4 +1,4 @@
-"""File to create the central Tracker in the P2P file share network"""
+"""File to create the central Tracker in the P2P file share network."""
 import argparse
 import ipaddress
 import socket
@@ -6,15 +6,9 @@ import struct
 import threading
 import hashlib
 
-# TODO literally the one issue here is that if a client crashes, we lose communication with them and cannot remove them from the swarm list
-# TODO however, this is not really a problem since we would just fail to connect to them.
-
-# TODO do we need to add protections against duplicate ports?
-
-# Dict holding the information about the swarm.
 swarm = {}
 
-# Peer id counter used to generate unique peers.
+# Counter used to generate unique peers ids.
 peer_id = 1
 
 # Lock for managing access to swarm.
@@ -22,10 +16,10 @@ lock = threading.Lock()
 
 
 def handle_peer(peer_sock, peer_addr):
-    """Handle the connection with a specified peer
+    """Handle the connection with a specified peer.
     Args:
-        peer_sock (socket.socket): The socket for a peer
-        peer_addr (str): The address for a peer
+        peer_sock (socket.socket): Socket for a peer.
+        peer_addr (str): Address for a peer.
     """
     global swarm
     global peer_id
@@ -35,7 +29,6 @@ def handle_peer(peer_sock, peer_addr):
         # Standard request format is 1 byte code, 2 byte id, 32 byte hash.
         packet = peer_sock.recv(35)
         code_hash = hashlib.sha256(packet[:3])
-        # Compare the hash generated from the code to the one we received.
         if code_hash.digest() != packet[3:]:
             peer_sock.send(b"\0")  # Message corrupted
             return
@@ -49,9 +42,7 @@ def handle_peer(peer_sock, peer_addr):
             # Just to avoid holding lock too long, copy current swarm.
             current_swarm = swarm.copy()
             lock.release()
-            # Start of response packet is the assigned ID of the peer.
             send_packet = struct.pack('>HH', current_id, len(current_swarm))
-            # Use a hash to confirm length and id were sent correctly.
             length_hash = hashlib.sha256(send_packet)
             peer_sock.send(send_packet + length_hash.digest())
             while True:
@@ -109,7 +100,6 @@ def handle_peer(peer_sock, peer_addr):
                         peer_sock.send(swarm_packet + swarm_hash.digest())
                     else:
                         break
-
             else:  # Otherwise, remove it from the swarm and ack
                 lock.acquire()
                 swarm.pop(msg_id)  # Remove client from swarm
@@ -126,7 +116,7 @@ def handle_peer(peer_sock, peer_addr):
 
 
 def main():
-    """Main function for creating and starting a Tracker"""
+    """Main function for creating and starting a Tracker."""
     parser = argparse.ArgumentParser(
         prog="Tracker",
         description="Runs tracker server for managing swarm.")

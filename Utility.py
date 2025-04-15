@@ -48,22 +48,6 @@ def reassemble_file(pieces, folder, output_filename):
             file.write(piece.rstrip(b'\x00'))
 
 
-# TODO do we really need this that much anymore?
-def find_missing_values(array, expected_range=135):
-    """Given a list where values 0 - expected range are expected, return the set that is missing
-        Used when testing random Seeders 
-    Args:
-        array (list): _description_
-        expected_range (int, optional): _description_. Defaults to 135.
-    Returns:
-        list: Sorted list of missing numbers
-    """
-    expected = set(range(expected_range))
-    actual = set(array)
-    missing = expected - actual
-    return sorted(missing)
-
-
 def create_bitfield(pieces, file_length):
     """Create a bitfield for the pieces dictionary for the specified file
     Args:
