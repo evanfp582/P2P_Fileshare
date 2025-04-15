@@ -183,7 +183,7 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
         packet = packet + sock.recv(length)  # read rest of packet
         parsed_packet = Packet.parse_packet(packet)
         type, payload = parsed_packet["type"], parsed_packet["payload"]
-        #print(f"Type: {type}, Payload: {payload}") TODO What do we want to print out while this is going?
+        # print(f"Type: {type}, Payload: {payload}") # TODO What do we want to print out while this is going?
 
         if type == Packet.PacketType.PIECE.name:
             piece_hash = hashlib.sha256(payload["piece"])
@@ -204,6 +204,7 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
 
             response_packet = Packet.create_packet(4, payload["packet_index"],
                                                    file_identifier)
+            # TODO on a single occasion during testing, I got an EOF error from ssl, no idea why - but it only every occurs when printing is on and I catch it now
             sock.send(response_packet)
 
             if not is_seeder and len(indexes_on_peer) != 0:
@@ -364,6 +365,8 @@ def seeder(local_port):
             print("Connection reset by peer.")
         except struct.error:
             print("Communication was severed early by peer.")
+        except ssl.SSLError:
+            print("Communication with peer failed.")
         except socket.timeout:
             print("Socket timed out.")
         peer_sock.close()
@@ -412,9 +415,11 @@ def downloader(local_port, output_file, file_indicator):
                     current_peers.append(test_peer)
                     lock.release()
                     # Try connecting on the 4 primary ports of the target.
+                    # Note that we also check the 5th in case the peer is a
+                    # downloader with an open seeder port.
                     peer_port, peer_ip = swarm[test_peer]
                     port_offset = 0
-                    while port_offset < 4:
+                    while port_offset < 5:
                         try:
                             sock = create_downloader(local_port,
                                                      peer_ip,
@@ -423,7 +428,11 @@ def downloader(local_port, output_file, file_indicator):
                         except ConnectionRefusedError:
                             port_offset += 1
                             continue
-                    if port_offset == 4:
+                        # This is thrown if the ssl handshake fails.
+                        except ConnectionResetError:
+                            port_offset += 1
+                            continue
+                    if port_offset == 5:
                         lock.acquire()
                         current_peers.remove(test_peer)
                         lock.release()
@@ -483,6 +492,8 @@ def downloader(local_port, output_file, file_indicator):
                 time.sleep(1)
             except ConnectionResetError:
                 print("Connection reset by peer.")
+            except ssl.SSLError:
+                print("Communication with peer failed.")
             except struct.error:
                 print("Communication was severed early by peer.")
             lock.acquire()
