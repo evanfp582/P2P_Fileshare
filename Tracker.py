@@ -112,6 +112,8 @@ def handle_peer(peer_sock, peer_addr):
         print("Connection reset by a client")
     except struct.error:
         print("Communication was severed early by peer.")
+    except TimeoutError:
+        print("Peer became unresponsive.")
     peer_sock.close()
 
 
@@ -141,6 +143,8 @@ def main():
         thread = threading.Thread(target=handle_peer,
                                   args=(peer_sock, peer_addr))
         thread.start()
+    # The tracker would be long-running in a real scenario, therefore it is
+    # never exited naturally, so just close the terminal window.
 
 
 if __name__ == "__main__":
