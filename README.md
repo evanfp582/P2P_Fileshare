@@ -108,6 +108,18 @@ Test 6 is testing multiple peers running at the same time on a swarm all request
 This test has the same Seeder set up as test 3, 4, and 5.  
 Once the Seeders are running, 4 downloaders get ran individually requesting 2short_story_100x.txt, 3lorem_ipsum.txt, 1short_story_10x.txt, 0short_story.txt.  
 
+**Test 7**  
+```cmd
+.\test7.ps1
+```
+Test 7 is showing 1 Seeder, that contains all pieces, supplying pieces for a bunch of  Downloaders. This demonstrates that once a Downloader peer gets pieces that other Downloaders need, it supplies pieces to them. This test is a good example of the powerful use cases of P2P file download. 
+
+**Test 8**  
+```cmd
+.\test8.ps1
+```
+Test 8 is meant as a comparison between test 7. Test 8 somewhat mimics the client-server paradigm that we want to improve on with P2P. We can see that this test runs much more slowly because there are only 2 downloader peers. 
+
 
 # Command Line Usage 
 We have developed a simple command line interface so users can check the progress of their download, be told when it is done, and exit if needed.  
