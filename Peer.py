@@ -330,13 +330,27 @@ def seeder(local_port):
     global pieces
     global shutdown_event
     while not shutdown_event.is_set():
-        # TODO do we want this to be in a try like everything else?
-        peer_sock = create_seeder(local_port)
+        try:
+            peer_sock = create_seeder(local_port)
+        except ConnectionResetError:
+            print("Connection reset by peer.")
+            continue
+        except struct.error:
+            print("Communication was severed early by peer.")
+            continue
+        except ssl.SSLError:
+            print("Communication with peer failed.")
+            continue
+        except socket.timeout:
+            print("Socket timed out.")
+            continue
+
         if peer_sock is None:
             break
         connected = handshake(peer_sock, initiate=False)
         if not connected:
-            # TODO do we need to close peer_sock here? Maybe test with doing so to see if it breaks anything
+            # TODO keeping this peer_sock.close() here for now, but remove it if it seems to be causing errors
+            peer_sock.close()
             continue
         try:
             indexes_on_peer = []
@@ -601,7 +615,7 @@ def main():
         tracker_ip = local_ip
     first_port, tracker_port = args.p, args.d
     missing_pieces, p2p_file = args.m, args.f
-    lower_range, upper_range =args.r1, args.r2
+    lower_range, upper_range = args.r1, args.r2
 
     if seeder_bool:
         for filename in os.listdir("input"):
