@@ -442,6 +442,8 @@ def downloader(local_port, output_file, file_indicator):
                     peer_port, peer_ip = swarm[test_peer]
                     port_offset = 0
                     while port_offset < 5:
+                        if sock is not None:
+                            sock.close()
                         try:
                             sock = create_downloader(local_port,
                                                      peer_ip,
