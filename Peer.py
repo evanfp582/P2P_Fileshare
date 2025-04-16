@@ -454,6 +454,15 @@ def downloader(local_port, output_file, file_indicator):
                         except ConnectionResetError:
                             port_offset += 1
                             continue
+                        # This occurs when attempts are firewalled.
+                        # Note: This only occurs when the 2 peers are on
+                        # different devices, and will take much longer to
+                        # resolve than local cases due to the timeout window.
+                        # It also only occurs when intentionally closing a
+                        # peer, so it is not seen in regular use cases.
+                        except TimeoutError:
+                            port_offset += 1
+                            continue
                     if port_offset == 5:
                         lock.acquire()
                         current_peers.remove(test_peer)
@@ -523,7 +532,9 @@ def downloader(local_port, output_file, file_indicator):
             lock.acquire()
             current_peers.remove(test_peer)
             lock.release()
-            sock.close()
+            # Double check in case an unexpected issue was encountered.
+            if sock is not None:
+                sock.close()
     if shutdown_event.is_set():
         return
     lock.acquire()
@@ -754,6 +765,7 @@ def main():
                 threading.Thread(target=seeder, args=(first_port + i,)))
             threads[i].start()
 
+    # TODO one thing i just noticed, if a critical issue with the tracker occurs, we end up needing to enter a command here so everything else moves on
     cli(shutdown_event, seeder_bool, p2p_file)
 
     for thread in threads:
