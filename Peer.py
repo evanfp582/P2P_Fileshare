@@ -202,6 +202,7 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
             if (recv_piece in pieces_remaining
                     and 
                 (piece_hash.digest() != pieces_remaining[recv_piece])):
+                lock.release()
                 continue
             if payload["packet_index"] in indexes_on_peer:
                 indexes_on_peer.remove(payload["packet_index"])
