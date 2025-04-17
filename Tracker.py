@@ -16,10 +16,14 @@ lock = threading.Lock()
 
 
 def handle_peer(peer_sock, peer_addr):
-    """Handle the connection with a specified peer.
+    """
+    Handle communication with a connecting peer, who can either be a new peer
+    or one already in the swarm. Message integrity is verified using hashes
+    to ensure peer data is correctly recorded.
+
     Args:
-        peer_sock (socket.socket): Socket for a peer.
-        peer_addr (str): Address for a peer.
+        peer_sock (socket.socket): Socket used for peer communication.
+        peer_addr (str): Address of peer.
     """
     global swarm
     global peer_id
@@ -33,7 +37,7 @@ def handle_peer(peer_sock, peer_addr):
             peer_sock.send(b"\0")  # Message corrupted
             return
         msg_code, msg_id = struct.unpack('>BH', packet[:3])
-        # code 0 means that it is a new client, so here id = port range.
+        # Code 0 means that it is a new client, so here id = port range.
         if msg_code == 0:
             lock.acquire()
             current_id = peer_id
@@ -69,7 +73,7 @@ def handle_peer(peer_sock, peer_addr):
                 else:
                     break
 
-        elif msg_code == 1:  # code 1 means a returning client
+        elif msg_code == 1:  # Code 1 means a returning client
             if msg_id == 0:  # If id is 0, it is just a refresh request
                 lock.acquire()
                 current_swarm = swarm.copy()
@@ -100,7 +104,7 @@ def handle_peer(peer_sock, peer_addr):
                         peer_sock.send(swarm_packet + swarm_hash.digest())
                     else:
                         break
-            else:  # Otherwise, remove it from the swarm and ack
+            else:  # Otherwise, remove it from the swarm and ACK
                 lock.acquire()
                 swarm.pop(msg_id)  # Remove client from swarm
                 send_packet = struct.pack('>H', msg_id)
@@ -132,7 +136,8 @@ def main():
         host = socket.gethostname()
         ip = socket.gethostbyname(host)
     except socket.gaierror:
-        return "Cannot retrieve local device IP."
+        print("Cannot retrieve local device IP.")
+        exit(1)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind((ip, source_port))
@@ -143,8 +148,9 @@ def main():
         thread = threading.Thread(target=handle_peer,
                                   args=(peer_sock, peer_addr))
         thread.start()
-    # The tracker would be long-running in a real scenario, therefore it is
-    # never exited naturally, so just close the terminal window.
+    # The tracker would be long-running in a real scenario, weather there are
+    # peers sending requests or not. Therefore, it is never exited naturally,
+    # so just close the terminal window.
 
 
 if __name__ == "__main__":

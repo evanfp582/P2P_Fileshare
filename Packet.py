@@ -15,20 +15,25 @@ class PacketType(Enum):
 
 
 def create_packet(packet_type, *args):
-    """Creates packets depending on what type you submit
-  Args:
-    packet_type (int): Integer 0 - 4 to indicate type of packet
-      0 Not Interested Message - No extra arguments
-      1 Have Message - Piece index and file requested
-      2 Bitfield Message - file id, bitfield bytes
-      3 Request Message - Packet index, file id
-      4 Piece Message - Piece index, bytes to send
-        (see Utility.split_file to create the byte list)
-  Raises:
-      ValueError: In the event wrong length or invalid argument
-  Returns:
-      packet ready to be sent
-  """
+    """
+    Creates message packets depending on the provided type, with each expecting
+    different arguments. All packets are length prefixed since the P2P protocol
+    uses TCP, hence byte streams rather than pure packets.
+
+    Args:
+        packet_type (int):
+            Integer 0 - 4 to indicate type of packet.
+            0 Not Interested Message - No extra arguments.
+            1 Have Message - Piece index and file requested.
+            2 Bitfield Message - file id, bitfield bytes.
+            3 Request Message - Packet index, file id.
+            4 Piece Message - Piece index, bytes to send.
+                (see Utility.split_file to create the byte list)
+    Raises:
+        ValueError: In the event wrong length or invalid argument.
+    Returns:
+        bytes: Packet ready to be sent.
+    """
     packet = None
     if packet_type == PacketType.NOT_INTERESTED.value:
         packet = struct.pack(">IB", 1, packet_type)
@@ -66,17 +71,20 @@ def create_packet(packet_type, *args):
 
 
 def parse_packet(packet):
-    """Function to return a parsed packet
-  Args:
-    packet (bytes): a byte string representation of the packet
-  Raises:
-    ValueError: If invalid length or packet_type code
-  Returns:
-    object: {"type": packet_type, "payload": None or data}  
-    Not Interested payload: None  
-    Have, Request payload: {"packet_index": int, "file_id": int}  
-    Piece payload: {"packet_index": int, "piece": byte string}  
-  """
+    """
+    Parses a valid packet using the P2P protocol message types. Again, all
+    packets are length prefixed.
+
+    Args:
+        packet (bytes): A byte string representation of the packet.
+    Raises:
+        ValueError: If invalid length or packet_type code.
+    Returns:
+        object: {"type": packet_type, "payload": None or data}
+        Not Interested payload: None
+        Have, Request payload: {"packet_index": int, "file_id": int}
+        Piece payload: {"packet_index": int, "piece": byte string}
+    """
     length, = struct.unpack(">I", packet[:4])
     if len(packet) < length:
         raise ValueError("Packet length mismatch")

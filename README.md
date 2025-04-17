@@ -1,14 +1,19 @@
 # P2P_Fileshare
 Work as a group of two students. The goal of this project is to develop a simple peer-to-peer (P2P) file-sharing application. This software will allow multiple users to share files without relying on a centralized server, similar to protocols used in BitTorrent.  
-
+Group:
+Evan Fisher-Perez (emf8602@rit.edu)
+Griffin Danner-Doran (gtd6864@rit.edu)
 # How to Install Dependencies
 There are no added dependencies needed to run this code.  This code was made using Python 3.11/12.
 
 # Notes:
 Our P2P protocol is not tested on or designed to support images, videos, or any other format than basic text files (ex .txt, .py). You can add
-your own files if necessary, but they must be prefixed 0-3 and will replace one of the provided text files.  
+your own files if necessary, but they must be prefixed 0-3 and will replace one of the provided text files since this was designed to be small scale.  
 The peers use SSL/TLS to communicate with one another, with the required cert and key files included here. While it should not be a problem,
-these authorizations were created on Windows, so there is a possibility that they do not work on other OSes.  
+these authorizations were created on Windows, so there is a possibility that they do not work on other OSes. If this occurs, the message 
+"Communication with peer failed." will be printed repeatedly to indicate the issue.   
+The provided test files are also designed to run powershell terminals, so it is recommended to use Windows only. All tests and work shown here 
+and in the report were done on Windows.  
 Next, it is worth mentioning that there are no protections against running 2 or more peers on the same port range. 
 While this is designed to be tested on a single host, it is meant to emulate a system of remote peers and trackers with minimal coordination. Therefore,
 submitting overlapping local port ranges or port ranges dedicated to other protocols will result in errors when the sockets attempt to bind on them.  
@@ -18,7 +23,8 @@ from the test code provided is to specify the IP location of the already running
 # How to Run
 Explained below is how to run each component in the P2P Fileshare Software System.  
 You may need to enable permission to run powershell scripts, as by default they tend to be blocked from direct execution.
-Futhermore, before execution, make sure that you have an output and hashes folder created.
+Furthermore, before execution, make sure that you have an output and hashes folder created.  
+All peers, regardless of type, must be run in the same location as the 2 helper libraries and the security files.
 
 ## Tracker
 Acts as a central peer discovery mechanism for the P2P protocol. Stores and distributes the current peers in the swarm. Always running.  
@@ -46,9 +52,11 @@ Arguments:
 -m pieces. List of missing pieces for this Seeder. Space separated group of ints.  
 -r1 range: Optional lower range of pieces for this Seeder.  
 -r2 range: Optional upper range of pieces for this Seeder.  
+Note that the range option will be used even if only one bound is set, with the other defaulting to 0.0 or 1.0 for lower and upper respectively.
 
 ## Test Cases
 The execution of programs requires many commands with very specific arguments so to actually run the test cases, we will be running powershell scripts.  
+You can run your own tests, but they should follow a similar format of setup to those provided.  
 
 All the tests follow the same format.
 First, open a terminal and run the Tracker.   
@@ -59,7 +67,7 @@ Sleep 10 seconds.
 Open a terminal and run one or more Downloader peers on a specific file.   
 Sleep 1 second between Downloader peers.  
 
-This 10 seconds is meant to allow you to view the starting allotment of file pieces on seeders using the prog command, or to delete the local copies of the input files
+This 10 seconds is meant to allow you to view the starting allotment of file pieces on seeders using the 'prog' command, or to delete the local copies of the input files
 to demonstrate that the P2P protocol allows downloaders to re-assemble the file just from seeders and the hash file even when the full file does not exist locally.
 
 **Test 1**
@@ -83,14 +91,14 @@ Seeder 3 gets the 40th through 60th percent of pieces.
 Seeder 4 gets the 60th through 80th percent of pieces.  
 Seeder 5 gets the 80th through 100 percent of pieces.  
 
-This is a more stressful test on the Downloader's ability to get pieces from more peers at the same time and demonstrates the speedup
+This is a more stressful test on the Downloaders' ability to get pieces from more peers at the same time and demonstrates the speedup
 obtained by using more seeders (and thus more parallel connections) as well as having less overlap.
 
 **Test 3**
 ```cmd
 .\test3.ps1
 ```
-Test 3 once again ramps up the number of peers in the networks and the specificity of what pieces each peer has.  
+Test 3 once again ramps up the number of peers in the networks and the range of pieces each peer has.  
 Now there are 9 peers each with very specific lower and upper ranges. The ranges between peers also overlap, handling the case where the Downloader receives multiples of pieces.   
 Also the file size is increased with us testing on 2short_story_100x.txt rather than 1short_story_10x.txt.  
 
@@ -105,12 +113,14 @@ Seeder 8 gets the 70th through 90th percent of pieces.
 Seeder 9 gets the 80th through 100 percent of pieces. 
 
 This is meant as a stress test to simulate the types of large files a real P2P system would need to handle.
+It should also demonstrate that a downloader does not connect to all seeders if it does not have to, as some seeders will have
+no connections, which can be seen by them still having ~4664 files after the test completes.
 
 **Test 4**  
 ```cmd
 .\test4.ps1
 ```
-Test 4 is a similar test as test 3, but on a different text file, 3lorem_ipsum.txt
+Test 4 is a similar test as test 3, but on a different text file, 3lorem_ipsum.txt, which is slightly smaller.
 
 **Test 5**  
 ```cmd
@@ -127,14 +137,14 @@ This test demonstrates that adding more concurrent downloaders does not signific
 ```
 Test 6 is testing multiple peers running at the same time on a swarm all requesting different files.
 This test has the same Seeder set up as test 3, 4, and 5.  
-Once the Seeders are running, 4 downloaders get ran individually requesting 2short_story_100x.txt, 3lorem_ipsum.txt, 1short_story_10x.txt, 0short_story.txt.  
+Once the Seeders are running, 4 downloaders run individually, requesting 2short_story_100x.txt, 3lorem_ipsum.txt, 1short_story_10x.txt, 0short_story.txt.  
 This test demonstrates our P2P systems ability to support multiple clients requesting multiple kinds of files at the same time.
 
 **Test 7**  
 ```cmd
 .\test7.ps1
 ```
-Test 7 is showing 1 Seeder that contains all pieces, supplying pieces for 5 Downloaders. 
+Test 7 starts 1 Seeder that contains all pieces, supplying pieces for 5 Downloaders all requesting 1short_story_10x.txt. 
 This demonstrates that once a Downloader peer gets pieces that other Downloaders need, it supplies pieces to them. 
 This test is a good example of the powerful use cases of P2P file sharing vs the usual client-server paradigm.
 
@@ -152,3 +162,5 @@ We have developed a simple command line interface so users can check the progres
 While the peers are running you can type `prog` to see the current progress of the download.  
 Or if you are done, you can exit by typing `exit`.  
 When the downloader is done `"Successfully Downloaded {output_file} to output/{output_file}"`.  
+Note: If a critical error with the tracker is encountered (which should really only occur when intentionally turning off the tracker mid-test),
+you should print prog or exit to cycle the client to check the exit state, otherwise it will hang waiting for your input.

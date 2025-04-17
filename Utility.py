@@ -7,11 +7,13 @@ PIECE_BYTE_LENGTH = 128
 
 def split_file(folder, filename):
     """Splits a file into chunks of a given size.
+
     Args:
         folder (str): Folder with file.
         filename (str): File to split.
+
     Returns:
-        list: byte pieces of file
+        list: Byte pieces of file
     """
     local_files = os.path.join(folder, filename)
     pieces = []
@@ -24,10 +26,12 @@ def split_file(folder, filename):
 
 def piece_hash(pieces):
     """Calculates the piecewise hashes of the provided file bytes.
+
     Args:
-        pieces (list): list of byte segments corresponding to pieces.
+        pieces (list): List of byte segments corresponding to pieces.
+
     Returns:
-        list: bytes corresponding to the hash of each piece
+        list: Bytes corresponding to the hash of each piece.
     """
     piece_hashes = []
     for piece in pieces:
@@ -36,7 +40,8 @@ def piece_hash(pieces):
 
 
 def reassemble_file(pieces, folder, output_filename):
-    """Reassemble file given byte chunks.
+    """Reassemble file given byte chunks and write to given destination.
+
     Args:
         pieces (list): Byte list to be reassembled.
         folder (str): Directory to save new file.
@@ -49,12 +54,14 @@ def reassemble_file(pieces, folder, output_filename):
 
 
 def create_bitfield(pieces, file_length):
-    """Create a bitfield for the pieces dictionary for the specified file
+    """Create a bitfield for the pieces dictionary with the given length.
+
     Args:
-        pieces (dictionary): (file, index) = string
-        file_length (int): total length of the file (in terms of pieces)
+        pieces (dictionary): Dictionary of pieces - (file, index) = string.
+        file_length (int): Total length of the file (in terms of pieces).
+
     Returns:
-        byte bitfield
+        bytes: Byte representation of bitfield.
     """
     bit_array = ["0"] * file_length
     for index in list(pieces.keys()):
@@ -69,30 +76,36 @@ def create_bitfield(pieces, file_length):
 
 
 def sort_by_index(piece_dict):
-    """Given the piece dict ({file_id, piece_index}: byte string)
-        return the sorted list by piece_index
+    """
+    Given the piece dict ({file_id, piece_index}: byte string) return the
+    sorted list by piece_index.
+
     Args:
-        piece_dict (dict): piece dictionary
+        piece_dict (dict): Piece dictionary to be sorted.
+
     Returns:
-        list: sorted list by piece_index
+        list: Sorted list by piece_index.
     """
     return [piece_dict[key] for key in sorted(piece_dict, key=lambda x: x[1])]
 
 
 def bytes_to_binary(byte_data):
-    """Converts byte into bit string. Used for bitfield
+    """Converts byte into bit string. Used for bitfield.
+
     Args:
-        byte_data (byte): bytes
+        byte_data (bytes): Bytes to be transformed.
+
     Returns:
-        string: string of bits from bytes
+        string: String of bits representing provided bytes.
     """
     return ''.join(f'{byte:08b}' for byte in byte_data)
 
 
 def create_hash_file(filename):
-    """Create a hash file for the given input/filename file  
+    """Create a hash file for the given input file.
+
     Args:
-        filename (str): filename with extension
+        filename (str): Filename with extension.
     """
     byte_array = split_file("input", filename)
     hashes = piece_hash(byte_array)
