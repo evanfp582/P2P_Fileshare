@@ -13,6 +13,8 @@ import time
 import Packet
 import Utility
 
+from Packet import PacketType
+
 # Global flag to indicate that we should exit all threads.
 exit_peer = False
 
@@ -173,7 +175,8 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
     Args:
         sock (socket.socket): Socket between this peer and another
         file_identifier (int): id of the file being shared over this communication.
-        indexes_on_peer (list): Pieces that are needed by this peer and found on the current connected peer.
+        indexes_on_peer (list): Pieces that are needed by this peer 
+                                and found on the current connected peer.
         is_seeder (bool): Flag for if this is the seeder. Defaults to False.
     """
     global lock
@@ -191,9 +194,6 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
         packet = packet + sock.recv(length)  # read rest of packet
         parsed_packet = Packet.parse_packet(packet)
         type, payload = parsed_packet["type"], parsed_packet["payload"]
-        # TODO my personal opinion is that we do not need to print anything, except maybe ends and starts of communication, but even that is optional I think
-        # print(f"Type: {type}, Payload: {payload}") # TODO What do we want to print out while this is going?
-
         if type == Packet.PacketType.PIECE.name:
             piece_hash = hashlib.sha256(payload["piece"])
 
@@ -212,13 +212,13 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
                 prev_pieces.add(payload["packet_index"])
             lock.release()
 
-            response_packet = Packet.create_packet(4, payload["packet_index"],
-                                                   file_identifier)
+            response_packet = Packet.create_packet(PacketType.HAVE.value,
+                                    payload["packet_index"], file_identifier)
             sock.send(response_packet)
 
             if not is_seeder and len(indexes_on_peer) != 0:
-                sock.send(Packet.create_packet(6, indexes_on_peer[0],
-                                               file_identifier))
+                sock.send(Packet.create_packet(PacketType.REQUEST.value, 
+                                        indexes_on_peer[0], file_identifier))
         elif type == Packet.PacketType.HAVE.name:
             packet_index, file_id = payload["packet_index"], payload["file_id"]
             if (packet_index, file_id) in sent:
@@ -228,13 +228,14 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
         elif type == Packet.PacketType.REQUEST.name:
             packet_index, file_id = payload["packet_index"], payload["file_id"]
             piece_to_send = pieces[(file_id, packet_index)]
-            response_packet = Packet.create_packet(7, packet_index,
-                                                   piece_to_send)
+            response_packet = Packet.create_packet(PacketType.PIECE.value, 
+                                                packet_index, piece_to_send)
             sock.send(response_packet)
             sent[(packet_index, file_id)] = time.time()
             if is_seeder and len(indexes_on_peer) != 0:
                 sock.send(
-                    Packet.create_packet(6, indexes_on_peer[0], file_id))
+                    Packet.create_packet(PacketType.REQUEST.value, 
+                                                indexes_on_peer[0], file_id))
                 indexes_on_peer.pop(0)
 
         elif type == Packet.PacketType.NOT_INTERESTED.name:
@@ -244,7 +245,7 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
 
         # Check if we should exit communication.
         if exit_peer or (not is_seeder and download_finished):
-            sock.send(Packet.create_packet(3))
+            sock.send(Packet.create_packet(PacketType.NOT_INTERESTED.value))
             time.sleep(1)
             break
 
@@ -256,8 +257,8 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
                 # The oldest unacked piece took > 2 seconds, resend piece.
                 sent.pop((packet_index, file_id))
                 piece_to_send = pieces[(file_id, packet_index)]
-                response_packet = Packet.create_packet(7, packet_index,
-                                                       piece_to_send)
+                response_packet = Packet.create_packet(PacketType.PIECE.value,
+                                                packet_index, piece_to_send)
                 sock.send(response_packet)
                 sent[(packet_index, file_id)] = time.time()
 
@@ -271,8 +272,8 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
         if not len(new_pieces) == 0:
             # Announce to peer new pieces
             for index in new_pieces:
-                response_packet = Packet.create_packet(4, index,
-                                                       file_identifier)
+                response_packet = Packet.create_packet(PacketType.HAVE.value,
+                                                       index, file_identifier)
                 sock.send(response_packet)
         prev_pieces = set2
 
@@ -349,7 +350,8 @@ def seeder(local_port):
             break
         connected = handshake(peer_sock, initiate=False)
         if not connected:
-            # TODO keeping this peer_sock.close() here for now, but remove it if it seems to be causing errors
+            # TODO keeping this peer_sock.close() here for now,
+            # TODO but remove it if it seems to be causing errors
             peer_sock.close()
             continue
         try:
@@ -371,8 +373,8 @@ def seeder(local_port):
                     relevant_pieces[p] = pieces[p]
             file_len = len(payload["bitfield"])
             seeder_bitfield = Utility.create_bitfield(relevant_pieces,
-                                                      file_len)
-            bitfield_packet = Packet.create_packet(5,
+                                                        file_len)
+            bitfield_packet = Packet.create_packet(PacketType.BITFIELD.value,
                                                    file_id, seeder_bitfield)
             peer_sock.send(bitfield_packet)
 
@@ -480,13 +482,12 @@ def downloader(local_port, output_file, file_indicator):
                 continue
         if sock is None:
             break
-        # print("Started download!") # TODO maybe we keep this in, but again not sure if necessary
         indexes_on_peer = []
 
         current_bitfield = Utility.create_bitfield(pieces,
                                                    total_pieces)
-        bitfield_packet = Packet.create_packet(5, file_indicator,
-                                               current_bitfield)
+        bitfield_packet = Packet.create_packet(PacketType.BITFIELD.value,
+                                            file_indicator, current_bitfield)
         try:
             sock.send(bitfield_packet)
             packet = sock.recv(4)
@@ -506,18 +507,19 @@ def downloader(local_port, output_file, file_indicator):
             lock.release()
             indexes_on_peer = list(set1 - set2)
             if len(indexes_on_peer) == 0:
-                sock.send(Packet.create_packet(3))
+                sock.send(Packet.create_packet(
+                                PacketType.NOT_INTERESTED.value))
                 lock.acquire()
                 current_peers.remove(test_peer)
                 lock.release()
                 sock.close()
                 continue
             # Initial request.
-            sock.send(Packet.create_packet(6, indexes_on_peer[0],
-                                           file_indicator))
+            sock.send(Packet.create_packet(PacketType.REQUEST.value,
+                                        indexes_on_peer[0], file_indicator))
             handle_responses(sock, file_indicator, indexes_on_peer)
             # Send not interested when done.
-            sock.send(Packet.create_packet(3))
+            sock.send(Packet.create_packet(PacketType.NOT_INTERESTED.value))
             time.sleep(1)
         except ConnectionResetError:
             print("Connection reset by peer.")
@@ -541,7 +543,8 @@ def downloader(local_port, output_file, file_indicator):
         copied_file = True
         assemble_pieces = Utility.sort_by_index(pieces)
         Utility.reassemble_file(assemble_pieces, "output", output_file)
-        print(f"Successfully Downloaded {output_file} to output/{output_file}.")
+        print(f"Successfully Downloaded", 
+              f"{output_file} to output/{output_file}.")
         print(time.strftime("%H:%M:%S", time.localtime()))
     lock.release()
     # When we are done downloading, act as a seeder until exit.
@@ -560,7 +563,8 @@ def cli(is_seeder, filename):
     print("Welcome to Bit Torrent!")
     if is_seeder:
         print("Running Seeder Peer.")
-        print("Type 'exit' to quit or 'prog' to see number of pieces Seeder has.")
+        print("Type 'exit' to quit or 'prog'", 
+              "to see number of pieces Seeder has.")
     else:
         print(f"Running Downloader Peer on {filename}.")
         print("Type 'exit' to quit or 'prog' to see download progress.")
@@ -644,9 +648,9 @@ def main():
             file_split = Utility.split_file("input", filename)
             full_file_dict = dict(enumerate(file_split))
             if missing_pieces is not None:
-                file_dict = {key: full_file_dict[key] for key in full_file_dict
-                             if
-                             key not in missing_pieces}
+                file_dict = {key: full_file_dict[key] 
+                             for key in full_file_dict
+                             if key not in missing_pieces}
 
             elif lower_range is not None or upper_range is not None:
                 lower = 0.0 if lower_range is None else lower_range
@@ -766,8 +770,6 @@ def main():
             threads.append(
                 threading.Thread(target=seeder, args=(first_port + i,)))
             threads[i].start()
-
-    # TODO one thing i just noticed, if a critical issue with the tracker occurs, we end up needing to enter a command here so everything else moves on
     cli(seeder_bool, p2p_file)
 
     for thread in threads:
