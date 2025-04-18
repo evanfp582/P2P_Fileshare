@@ -404,9 +404,11 @@ def seeder(local_port):
                     indexes_on_peer.append(i)
 
             relevant_pieces = {}
+            lock.acquire()
             for p in pieces.keys():
                 if p[0] == file_id:
                     relevant_pieces[p] = pieces[p]
+            lock.release()
             file_len = len(payload["bitfield"])
             seeder_bitfield = Utility.create_bitfield(relevant_pieces,
                                                       file_len)
@@ -473,7 +475,10 @@ def downloader(local_port, output_file, file_indicator):
             swarm_peers = list(swarm.keys())
             random.shuffle(swarm_peers)
             test_peer = swarm_peers[0]
-            if test_peer != local_id and test_peer not in current_peers:
+            lock.acquire()
+            peers = current_peers.copy()
+            lock.release()
+            if test_peer != local_id and test_peer not in peers:
                 # If we can get the peer, add them to the reserved list.
                 lock.acquire()
                 if test_peer in current_peers:
