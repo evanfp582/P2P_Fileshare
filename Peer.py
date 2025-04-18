@@ -53,9 +53,8 @@ def handshake(sock, target_id=0, initiate=True):
     initiating, verify that target returns expected ID.
 
     Args:
-        sock (SSLSocket): Socket used for this P2P connection
-        target_id (int, optional):
-            ID of target peer. Defaults to 0.
+        sock (SSLSocket): Socket used for this P2P connection.
+        target_id (int, optional): ID of target peer. Defaults to 0.
         initiate (bool, optional):
             Whether this peer initiated connection. Defaults to True.
 
