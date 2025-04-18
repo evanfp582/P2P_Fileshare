@@ -8,13 +8,13 @@ There are no added dependencies needed to run this code.  This code was made usi
 
 # Notes:
 Our P2P protocol is not tested on or designed to support images, videos, or any other format than basic text files (ex .txt, .py). You can add
-your own files if necessary, but they must be prefixed 0-3 and will replace one of the provided text files since this was designed to be small scale.  
+your own files if necessary, but they must be prefixed 0-3 and will need to replace one of the provided text files since this was designed to be small scale.  
 The peers use SSL/TLS to communicate with one another, with the required cert and key files included here. While it should not be a problem,
 these authorizations were created on Windows, so there is a possibility that they do not work on other OSes. If this occurs, the message 
 "Communication with peer failed." will be printed repeatedly to indicate the issue.   
 The provided test files are also designed to run powershell terminals, so it is recommended to use Windows only. All tests and work shown here 
 and in the report were done on Windows.  
-Next, it is worth mentioning that there are no protections against running 2 or more peers on the same port range. 
+Next, it is worth mentioning that there are no built-in protections against running 2 or more peers on the same port range. 
 While this is designed to be tested on a single host, it is meant to emulate a system of remote peers and trackers with minimal coordination. Therefore,
 submitting overlapping local port ranges or port ranges dedicated to other protocols will result in errors when the sockets attempt to bind on them.  
 Finally, this system can support multiple devices with minimal effort, as each peer ends its local IP to the tracker. The only change needed
@@ -52,7 +52,8 @@ Arguments:
 -m pieces. List of missing pieces for this Seeder. Space separated group of ints.  
 -r1 range: Optional lower range of pieces for this Seeder.  
 -r2 range: Optional upper range of pieces for this Seeder.  
-Note that the range option will be used even if only one bound is set, with the other defaulting to 0.0 or 1.0 for lower and upper respectively.
+Note that the range option will be used even if only one bound is set, with the other defaulting to 0.0 or 1.0 for lower and upper respectively.  
+Also if both missing pieces and ranges are provided, the missing pieces will be used.
 
 ## Test Cases
 The execution of programs requires many commands with very specific arguments so to actually run the test cases, we will be running powershell scripts.  
@@ -75,7 +76,7 @@ to demonstrate that the P2P protocol allows downloaders to re-assemble the file 
 .\test.ps1
 ```
 Basic test to distribute and download 1short_story_10x.txt.  
-Runs 3 Seeder peers that have most pieces of 1short_story_10x.txt.  
+Runs 3 Seeder peers that have most of the pieces for each file (only missing 5 from each).  
 Then runs a Downloader peer to get 1short_story_10x.txt from the previous 3 Seeder peers.
 This test is expected to run slowly, as it demonstrates that our P2P system is least effective when the seeders have overlapping pieces.
 
@@ -129,7 +130,9 @@ Test 4 is a similar test as test 3, but on a different text file, 3lorem_ipsum.t
 Test 5 tests multiple Downloaders all trying to download the same file, 3lorem_ipsum.txt.  
 This test has the same Seeder set up as test 3 and 4.  
 Once the Seeders are running, the three Downloaders run, with their expected times similar to that of test 4.
-This test demonstrates that adding more concurrent downloaders does not significantly increase the time to get a file, as it would in a client-server system. 
+This test demonstrates that adding more concurrent downloaders does not significantly increase the time to get a file, as it would in a client-server system.  
+It is worth mentioning here that if you have a lower-resource system, there may be some slowdown from the overhead of running more shell scripts. This was not
+observed in our tests as we were testing on sufficiently powerful hardware.
 
 **Test 6**  
 ```cmd
