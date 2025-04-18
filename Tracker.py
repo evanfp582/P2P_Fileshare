@@ -6,6 +6,7 @@ import struct
 import threading
 import hashlib
 
+# Dict containing peer IDs and IP + port range tuples.
 swarm = {}
 
 # Counter used to generate unique peers ids.

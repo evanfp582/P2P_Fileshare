@@ -8,7 +8,7 @@ PIECE_BYTE_LENGTH = 128
 
 class PacketType(Enum):
     """
-    Codes that corelate with a packet type
+    Codes that correlate with a packet type
     """
     NOT_INTERESTED = 0
     HAVE = 1

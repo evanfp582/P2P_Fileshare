@@ -835,7 +835,7 @@ def main():
         # downloaders to connect to each other as needed.
         # Note: Since seeders do not care who connects to them, in some cases
         # the seeder channel accepts a connection from a fellow downloader
-        # to whom we are already downloading from.
+        # to whom we are already downloading from via a Downloader channel.
         threads.append(
             threading.Thread(target=seeder, args=(first_port + 4,)))
         threads[4].start()
