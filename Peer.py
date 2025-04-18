@@ -53,8 +53,10 @@ def handshake(sock, target_id=0, initiate=True):
     initiating, verify that target returns expected ID.
 
     Args:
-        sock (SSLSocket): Socket used for this P2P connection.
-        target_id (int, optional): ID of target peer. Defaults to 0.
+        sock (SSLSocket): 
+            Socket used for this P2P connection.
+        target_id (int, optional): 
+            ID of target peer. Defaults to 0.
         initiate (bool, optional):
             Whether this peer initiated connection. Defaults to True.
 
@@ -113,8 +115,10 @@ def update_swarm(s_ip, s_port):
     tracker. Run as a background thread on all peers.
 
     Args:
-        s_ip (str): IP of tracker.
-        s_port (int): Port of tracker.
+        s_ip (str): 
+            IP of tracker.
+        s_port (int):
+            Port of tracker.
     """
     global swarm
     global lock
@@ -186,13 +190,15 @@ def handle_responses(sock, file_identifier, indexes_on_peer, is_seeder=False):
     main function, piecewise data transfer and hash validation.
 
     Args:
-        sock (SSLSocket): Socket used for this P2P connection.
+        sock (SSLSocket): 
+            Socket used for this P2P connection.
         file_identifier (int):
             ID of the file being shared over this communication.
         indexes_on_peer (list):
             Pieces that are needed by this peer and found on the currently
             connected peer.
-        is_seeder (bool): Flag for if this is a seeder. Defaults to False.
+        is_seeder (bool): 
+            Flag for if this is a seeder. Defaults to False.
     """
     global lock
     global pieces_remaining
@@ -301,9 +307,11 @@ def create_downloader(peer_ip, peer_port):
     Create a Downloader socket for on a peer using SSL. This socket expects to
     connect to an open and listening seeder socket.
 
-    Args:.
-        peer_ip (str): Peer IP.
-        peer_port (int): Peer port.
+    Args:
+        peer_ip (str): 
+            Peer IP.
+        peer_port (int): 
+            Peer port.
 
     Returns:
         SSLSocket: Socket with secure connection to seeder.
@@ -324,7 +332,7 @@ def create_seeder(port):
     downloader peer connects, checking every second if it needs to exit.
 
     Args:
-        port (int): Port number for Seeder channel.
+        port (int):  Port number for Seeder channel.
 
     Returns:
         SSLSocket: Socket with secure connection to downloader.
@@ -436,9 +444,12 @@ def downloader(local_port, output_file, file_indicator):
     a seeder to facilitate downloads by other peers.
 
     Args:
-        local_port (int): Port number corresponding to this channel.
-        output_file (str): Name of output file to write to.
-        file_indicator (int): Internal ID corresponding to the target file.
+        local_port (int): 
+            Port number corresponding to this channel.
+        output_file (str): 
+            Name of output file to write to.
+        file_indicator (int): 
+            Internal ID corresponding to the target file.
     """
     global download_finished
     global lock
@@ -597,7 +608,8 @@ def cli(is_seeder, filename):
     Args:
         is_seeder (bool):
             Changes output depending on the state of the current peer.
-        filename (str): File being downloaded if downloader.
+        filename (str): 
+            File being downloaded if downloader.
     """
     global exit_peer
     print("Welcome to Bit Torrent!")
@@ -632,7 +644,6 @@ def main():
     get initial ID and swarm list. Then starts downloader or seeder threads
     before initiating the user interface. Upon exiting the interface, the
     tracker is contacted one last time to remove the peer from the swarm list.
-
     """
     global swarm
     global local_id

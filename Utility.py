@@ -9,8 +9,10 @@ def split_file(folder, filename):
     """Splits a file into chunks of a given size.
 
     Args:
-        folder (str): Folder with file.
-        filename (str): File to split.
+        folder (str): 
+            Folder with file.
+        filename (str): 
+            File to split.
 
     Returns:
         list: Byte pieces of file
@@ -28,7 +30,7 @@ def piece_hash(pieces):
     """Calculates the piecewise hashes of the provided file bytes.
 
     Args:
-        pieces (list): List of byte segments corresponding to pieces.
+        pieces (list):  List of byte segments corresponding to pieces.
 
     Returns:
         list: Bytes corresponding to the hash of each piece.
@@ -43,9 +45,12 @@ def reassemble_file(pieces, folder, output_filename):
     """Reassemble file given byte chunks and write to given destination.
 
     Args:
-        pieces (list): Byte list to be reassembled.
-        folder (str): Directory to save new file.
-        output_filename (str): Name of new file.
+        pieces (list): 
+            Byte list to be reassembled.
+        folder (str): 
+            Directory to save new file.
+        output_filename (str): 
+            Name of new file.
     """
     remote_files = os.path.join(folder, output_filename)
     with open(remote_files, "wb") as file:
@@ -57,8 +62,10 @@ def create_bitfield(pieces, file_length):
     """Create a bitfield for the pieces dictionary with the given length.
 
     Args:
-        pieces (dictionary): Dictionary of pieces - (file, index) = string.
-        file_length (int): Total length of the file (in terms of pieces).
+        pieces (dictionary): 
+            Dictionary of pieces - (file, index) = string.
+        file_length (int): 
+            Total length of the file (in terms of pieces).
 
     Returns:
         bytes: Byte representation of bitfield.

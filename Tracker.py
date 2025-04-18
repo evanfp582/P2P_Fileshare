@@ -22,8 +22,10 @@ def handle_peer(peer_sock, peer_addr):
     to ensure peer data is correctly recorded.
 
     Args:
-        peer_sock (socket.socket): Socket used for peer communication.
-        peer_addr (str): Address of peer.
+        peer_sock (socket.socket): 
+            Socket used for peer communication.
+        peer_addr (str): 
+            Address of peer.
     """
     global swarm
     global peer_id

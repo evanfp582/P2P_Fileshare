@@ -1,4 +1,4 @@
-"""File containing some Packed related functions"""
+"""File containing Packed related functions"""
 import struct
 from enum import Enum
 import Utility
@@ -7,6 +7,9 @@ PIECE_BYTE_LENGTH = 128
 
 
 class PacketType(Enum):
+    """
+    Codes that corelate with a packet type
+    """
     NOT_INTERESTED = 0
     HAVE = 1
     BITFIELD = 2
@@ -21,14 +24,12 @@ def create_packet(packet_type, *args):
     uses TCP, hence byte streams rather than pure packets.
 
     Args:
-        packet_type (int):
-            Integer 0 - 4 to indicate type of packet.
-            0 Not Interested Message - No extra arguments.
-            1 Have Message - Piece index and file requested.
-            2 Bitfield Message - file id, bitfield bytes.
-            3 Request Message - Packet index, file id.
-            4 Piece Message - Piece index, bytes to send.
-                (see Utility.split_file to create the byte list)
+        packet_type (int): Integer 0 - 4 to indicate type of packet.
+            * 0 Not Interested Message - No extra arguments.
+            * 1 Have Message - Piece index and file requested.
+            * 2 Bitfield Message - file id, bitfield bytes.
+            * 3 Request Message - Packet index, file id.
+            * 4 Piece Message - Piece index, bytes to send.
     Raises:
         ValueError: In the event wrong length or invalid argument.
     Returns:
@@ -80,10 +81,10 @@ def parse_packet(packet):
     Raises:
         ValueError: If invalid length or packet_type code.
     Returns:
-        object: {"type": packet_type, "payload": None or data}
-        Not Interested payload: None
-        Have, Request payload: {"packet_index": int, "file_id": int}
-        Piece payload: {"packet_index": int, "piece": byte string}
+        - object: {"type": packet_type, "payload": None or data}
+        * Not Interested payload: None
+        * Have, Request payload: {"packet_index": int, "file_id": int}
+        * Piece payload: {"packet_index": int, "piece": byte string}
     """
     length, = struct.unpack(">I", packet[:4])
     if len(packet) < length:
