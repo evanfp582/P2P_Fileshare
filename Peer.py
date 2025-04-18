@@ -472,12 +472,12 @@ def downloader(local_port, output_file, file_indicator):
         sock = None
         while not download_finished and not exit_peer:
             # Randomize list of peers, and choose the first one.
-            swarm_peers = list(swarm.keys())
-            random.shuffle(swarm_peers)
-            test_peer = swarm_peers[0]
             lock.acquire()
+            swarm_peers = list(swarm.keys())
             peers = current_peers.copy()
             lock.release()
+            random.shuffle(swarm_peers)
+            test_peer = swarm_peers[0]
             if test_peer != local_id and test_peer not in peers:
                 # If we can get the peer, add them to the reserved list.
                 lock.acquire()
@@ -485,11 +485,11 @@ def downloader(local_port, output_file, file_indicator):
                     lock.release()
                     continue
                 current_peers.append(test_peer)
-                lock.release()
                 # Try connecting on the 4 primary ports of the target.
                 # Note that we also check the 5th in case the peer is a
                 # downloader with an open seeder port.
                 peer_port, peer_ip = swarm[test_peer]
+                lock.release()
                 port_offset = 0
                 while port_offset < 5:
                     if sock is not None:

@@ -155,8 +155,8 @@ This test is a good example of the powerful use cases of P2P file sharing vs the
 ```cmd
 .\test8.ps1
 ```
-Test 8 is meant as a comparison between test 7. We can see that this test runs much more slowly because there are only 2 downloader peers. 
-As a result, we can see that adding more peers to a P2P file sharing system actually increases the rate at which files can be transmitted, 
+Test 8 is meant as a comparison between test 7. We can see that this test runs at a similar speed to test 7 even with fewer peers. 
+As a result, we can see that adding more peers to a P2P file sharing system does not decrease the rate at which files can be transmitted, 
 as opposed to a standard client-server system where adding more clients would be expected to slow down execution.
 
 
