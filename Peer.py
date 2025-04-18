@@ -368,6 +368,7 @@ def seeder(local_port):
     """
     global pieces
     global exit_peer
+    global lock
     while not exit_peer:
         try:
             peer_sock = create_seeder(local_port)

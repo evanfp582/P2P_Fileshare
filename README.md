@@ -19,7 +19,7 @@ While this is designed to be tested on a single host, it is meant to emulate a s
 submitting overlapping local port ranges or port ranges dedicated to other protocols will result in errors when the sockets attempt to bind on them.  
 Finally, this system can support multiple devices with minimal effort, as each peer ends its local IP to the tracker. The only change needed
 from the test code provided is to specify the IP location of the already running tracker. However, given the relatively short timeouts used in the program,
-this is best suited for fairly close devices.
+this is best suited for fairly close devices. You will also need to make sure that all Seeders have the same input files, and that all Downloaders use the same hash lists.
 
 # How to Run
 Explained below is how to run each component in the P2P Fileshare Software System.  
