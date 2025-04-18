@@ -466,7 +466,7 @@ def downloader(local_port, output_file, file_indicator):
             test_peer = swarm_peers[0]
             lock.acquire()
             peers = current_peers.copy()
-            lock.acquire()
+            lock.release()
             if test_peer != local_id and test_peer not in peers:
                 # If we can get the peer, add them to the reserved list.
                 lock.acquire()
